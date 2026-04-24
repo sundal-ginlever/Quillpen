@@ -760,14 +760,9 @@ async function afterLogin() {
   hideAuthScreen();
   await ensureUserCanvases();
   await openLastCanvas();
-  
-  if (currentCanvasId && typeof sb !== 'undefined' && sb) {
-    const { data } = await sb.from('canvases').select('name').eq('id', currentCanvasId).single();
-    if (data?.name) {
-      currentCanvasName = data.name;
-      document.title = `inkcanvas — ${data.name}`;
-    }
-  }
+
+  // Load widgets from cloud (includes camera, settings, connections, realtime)
+  await loadFromCloud();
 
   startCanvas();
 }
