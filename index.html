@@ -2645,7 +2645,7 @@ function initInteraction(){
   function getWidgetEl(e){return e.target.closest('[data-widget-id]');}
   function updateGhost(sx,sy,sw,sh,type){
     ghostEl.style.display='block';ghostEl.style.left=sx+'px';ghostEl.style.top=sy+'px';ghostEl.style.width=sw+'px';ghostEl.style.height=sh+'px';
-    const icons={memo:'📝 메모',sketch:'✏️ 스케치',spreadsheet:'⊞ 스프레드시트'};
+    const icons={memo:'📝 메모',sketch:'✏️ 스케치',spreadsheet:'⊞ 스프레드시트',image:'🖼 이미지'};
     ghostLabel.textContent=icons[type]||type;
     ghostSize.textContent=`${Math.round(sw/camera.zoom/SNAP)}×${Math.round(sh/camera.zoom/SNAP)} 블록`;
   }
@@ -2680,7 +2680,7 @@ function initInteraction(){
     const rect=rootEl.getBoundingClientRect();
     const sp={x:e.clientX,y:e.clientY},wp=screenToWorld(e.clientX-rect.left,e.clientY-rect.top);
     if(state.activeTool==='hand'||e.button===1||(e.button===0&&e.altKey)){e.preventDefault();drag={type:'pan',last:sp};rootEl.style.cursor='grabbing';return;}
-    if(['memo','sketch','spreadsheet'].includes(state.activeTool)&&!wid){drawBox={startWorld:{...wp},curWorld:{...wp},type:state.activeTool};drag={type:'draw',last:sp};return;}
+    if(['memo','sketch','spreadsheet','image'].includes(state.activeTool)&&!wid){drawBox={startWorld:{...wp},curWorld:{...wp},type:state.activeTool};drag={type:'draw',last:sp};return;}
     if(state.activeTool==='select'){
       if(wid){
         if(!state.selectedIds.has(wid))setSelected(e.shiftKey?[...state.selectedIds,wid]:[wid]);
