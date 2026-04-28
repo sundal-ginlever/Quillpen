@@ -3141,7 +3141,15 @@ function buildToolbar(){
     ab.style.cssText='height:36px;padding:0 10px;border-radius:8px;font-size:11px;border:1px solid rgba(0,0,0,.1);background:white;color:#64748b;cursor:pointer;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
     ab.textContent=currentUser.email?.split('@')[0]||'계정';
     ab.title='클릭: 로그아웃';
-    ab.addEventListener('click',async()=>{if(confirm('로그아웃 하시겠습니까?')){await sb.auth.signOut();location.reload();}});
+    ab.addEventListener('click',async()=>{
+      if(confirm('로그아웃 하시겠습니까?')){
+        // BUG FIX: Flush pending changes before sign out
+        setSyncState('syncing', '로그아웃 전 저장 중...');
+        await flushToCloud();
+        await sb.auth.signOut();
+        location.reload();
+      }
+    });
     tb.appendChild(ab);
   }
 }
