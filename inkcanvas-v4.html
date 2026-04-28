@@ -760,9 +760,14 @@ async function afterLogin() {
   hideAuthScreen();
   await ensureUserCanvases();
   await openLastCanvas();
-
-  // Load widgets from cloud (includes camera, settings, connections, realtime)
-  await loadFromCloud();
+  
+  if (currentCanvasId && typeof sb !== 'undefined' && sb) {
+    const { data } = await sb.from('canvases').select('name').eq('id', currentCanvasId).single();
+    if (data?.name) {
+      currentCanvasName = data.name;
+      document.title = `inkcanvas — ${data.name}`;
+    }
+  }
 
   startCanvas();
 }
@@ -2096,8 +2101,6 @@ function renderSpreadsheet(w) {
   let boldCells   = new Set();
   let italicCells = new Set();
   let formulaBarActive = false;
-  let pointingMode = false;
-  let pointingPrefix = '';
 
   const DEF_COL = 80, DEF_ROW = 26;
 
@@ -2217,29 +2220,16 @@ function renderSpreadsheet(w) {
   }
 
   // ── formula bar sync ──
-  fxBar.addEventListener('pointerdown', e => { e.stopPropagation(); formulaBarActive = true; pointingMode = false; });
-  fxBar.addEventListener('focus', () => { formulaBarActive = true; pointingMode = false; });
+  fxBar.addEventListener('pointerdown', e => { e.stopPropagation(); formulaBarActive = true; });
+  fxBar.addEventListener('focus', () => { formulaBarActive = true; });
   fxBar.addEventListener('blur',  () => {
     formulaBarActive = false;
-    if (activeCell && !pointingMode) commitFxBar();
+    if (activeCell) commitFxBar();
   });
   fxBar.addEventListener('keydown', e => {
     e.stopPropagation();
-    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) {
-      if (fxBar.value.startsWith('=')) {
-        const pos = fxBar.selectionStart;
-        const before = fxBar.value.slice(0, pos);
-        if (pos === fxBar.value.length || /[(=+\-*/,&]/.test(before.slice(-1))) {
-          pointingMode = true;
-          pointingPrefix = before;
-          wrap.focus();
-          e.preventDefault();
-          return;
-        }
-      }
-    }
     if (e.key === 'Enter')  { commitFxBar(); moveActive(1, 0); e.preventDefault(); }
-    if (e.key === 'Escape') { fxBar.value = getCellRaw(activeCell); fxBar.blur(); pointingMode = false; }
+    if (e.key === 'Escape') { fxBar.value = getCellRaw(activeCell); fxBar.blur(); }
     if (e.key === 'Tab')    { e.preventDefault(); commitFxBar(); moveActive(0, e.shiftKey ? -1 : 1); }
   });
   fxBar.addEventListener('input', () => {
@@ -2304,15 +2294,8 @@ function renderSpreadsheet(w) {
     const d = wd();
     const nr = Math.max(0, Math.min(d.rows - 1, activeCell.r + dr));
     const nc = Math.max(0, Math.min(d.cols - 1, activeCell.c + dc));
-    if (pointingMode) {
-      activeCell = { r: nr, c: nc };
-      fxBar.value = pointingPrefix + colLabel(nc) + (nr + 1);
-      updateSelectionUI();
-      scrollToCell(nr, nc);
-    } else {
-      activateCell(nr, nc, false);
-      scrollToCell(nr, nc);
-    }
+    activateCell(nr, nc, false);
+    scrollToCell(nr, nc);
   }
 
   function scrollToCell(r, c) {
@@ -2552,31 +2535,14 @@ function renderSpreadsheet(w) {
     if (e.key === 'ArrowLeft')  { e.preventDefault(); moveActive(0, -1); }
     if (e.key === 'ArrowRight') { e.preventDefault(); moveActive(0, 1); }
     if (e.key === 'Tab')        { e.preventDefault(); moveActive(0, e.shiftKey ? -1 : 1); }
-    if (e.key === 'Enter')      { 
-      e.preventDefault(); 
-      if (pointingMode) {
-        pointingMode = false;
-        fxBar.focus();
-        fxBar.setSelectionRange(fxBar.value.length, fxBar.value.length);
-      } else {
-        moveActive(e.shiftKey ? -1 : 1, 0); 
-      }
-    }
+    if (e.key === 'Enter')      { e.preventDefault(); moveActive(e.shiftKey ? -1 : 1, 0); }
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
       const newCells = { ...d.cells };
       selectedKeys().forEach(k => delete newCells[k]);
       updateWidget(w.id, { cells: newCells }); rebuildTable(); save();
     }
-    if (e.key === 'Escape') { 
-      if (pointingMode) {
-        pointingMode = false;
-        fxBar.value = pointingPrefix;
-        fxBar.focus();
-      } else {
-        selRange = null; activeCell = null; updateSelectionUI(); 
-      }
-    }
+    if (e.key === 'Escape') { selRange = null; activeCell = null; updateSelectionUI(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 'c') { e.preventDefault(); copySelection(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 'v') { e.preventDefault(); if (activeCell) pasteAt(activeCell.r, activeCell.c); }
     if ((e.ctrlKey || e.metaKey) && e.key === 'a') { e.preventDefault(); selRange={r0:0,c0:0,r1:d.rows-1,c1:d.cols-1}; updateSelectionUI(); }
@@ -2684,7 +2650,7 @@ function initInteraction(){
   function getWidgetEl(e){return e.target.closest('[data-widget-id]');}
   function updateGhost(sx,sy,sw,sh,type){
     ghostEl.style.display='block';ghostEl.style.left=sx+'px';ghostEl.style.top=sy+'px';ghostEl.style.width=sw+'px';ghostEl.style.height=sh+'px';
-    const icons={memo:'📝 메모',sketch:'✏️ 스케치',spreadsheet:'⊞ 스프레드시트',image:'🖼 이미지'};
+    const icons={memo:'📝 메모',sketch:'✏️ 스케치',spreadsheet:'⊞ 스프레드시트'};
     ghostLabel.textContent=icons[type]||type;
     ghostSize.textContent=`${Math.round(sw/camera.zoom/SNAP)}×${Math.round(sh/camera.zoom/SNAP)} 블록`;
   }
@@ -2719,7 +2685,7 @@ function initInteraction(){
     const rect=rootEl.getBoundingClientRect();
     const sp={x:e.clientX,y:e.clientY},wp=screenToWorld(e.clientX-rect.left,e.clientY-rect.top);
     if(state.activeTool==='hand'||e.button===1||(e.button===0&&e.altKey)){e.preventDefault();drag={type:'pan',last:sp};rootEl.style.cursor='grabbing';return;}
-    if(['memo','sketch','spreadsheet','image'].includes(state.activeTool)&&!wid){drawBox={startWorld:{...wp},curWorld:{...wp},type:state.activeTool};drag={type:'draw',last:sp};return;}
+    if(['memo','sketch','spreadsheet'].includes(state.activeTool)&&!wid){drawBox={startWorld:{...wp},curWorld:{...wp},type:state.activeTool};drag={type:'draw',last:sp};return;}
     if(state.activeTool==='select'){
       if(wid){
         if(!state.selectedIds.has(wid))setSelected(e.shiftKey?[...state.selectedIds,wid]:[wid]);
@@ -2770,7 +2736,7 @@ function initInteraction(){
   });
 
   window.addEventListener('pointerup',e=>{
-    // Unified commit logic for both mouse and touch single-point drags
+    if(e.pointerType==='touch')return;
     if(drag?.type==='move'){
       state.selectedIds.forEach(id=>{
         const ww=state.widgets[id];if(!ww||ww.locked)return;
@@ -2830,31 +2796,18 @@ function initInteraction(){
     else if(e.touches.length===1){
       const t=e.touches[0],wEl=getWidgetEl(e),wid=wEl?.dataset.widgetId;
       touchStartX = t.clientX; touchStartY = t.clientY;
-      const rect=rootEl.getBoundingClientRect();
-      const wp=screenToWorld(t.clientX-rect.left, t.clientY-rect.top);
-
       if(wid){
         if(!state.selectedIds.has(wid))setSelected([wid]);
         bringToFront(wid);
         const positions={};state.selectedIds.forEach(id=>{const ww=state.widgets[id];if(ww)positions[id]={x:ww.x,y:ww.y};});
         drag={type:'move',start:{x:t.clientX,y:t.clientY},last:{x:t.clientX,y:t.clientY},positions};
+        // Long press detection for context menu (Task 4.1)
         touchTimer = setTimeout(() => {
           touchTimer = null;
           showWidgetContextMenu(t.clientX, t.clientY, wid);
         }, 500);
       }
-      else{
-        if(['memo','sketch','spreadsheet','image'].includes(state.activeTool)){
-          drawBox={startWorld:{...wp},curWorld:{...wp},type:state.activeTool};
-          drag={type:'draw',last:{x:t.clientX,y:t.clientY}};
-        } else if(state.activeTool==='select'){
-          setSelected([]); selBox={startWorld:wp,curWorld:wp};
-          drag={type:'select',last:{x:t.clientX,y:t.clientY}};
-        } else {
-          drag={type:'pan',last:{x:t.clientX,y:t.clientY}};
-          lastPanPt={x:t.clientX,y:t.clientY};
-        }
-      }
+      else{drag={type:'pan',last:{x:t.clientX,y:t.clientY}};lastPanPt={x:t.clientX,y:t.clientY};}
     }
   },{passive:false});
   rootEl.addEventListener('touchmove',e=>{
@@ -2872,47 +2825,16 @@ function initInteraction(){
       pinch.dist=nd;
     }else if(e.touches.length===1&&drag){
       const t=e.touches[0];
-      const rect=rootEl.getBoundingClientRect();
       if(drag.type==='pan'){pan(t.clientX-lastPanPt.x,t.clientY-lastPanPt.y);lastPanPt={x:t.clientX,y:t.clientY};}
       else if(drag.type==='move'){
         const tdx=(t.clientX-drag.start.x)/camera.zoom,tdy=(t.clientY-drag.start.y)/camera.zoom;
         Object.entries(drag.positions).forEach(([id,s])=>{if(state.widgets[id]?.locked)return;const el2=document.getElementById('w-'+id);if(el2){el2.style.left=(s.x+tdx)+'px';el2.style.top=(s.y+tdy)+'px';}if(state.widgets[id]){state.widgets[id].x=s.x+tdx;state.widgets[id].y=s.y+tdy;}});
-      } else if(drag.type==='draw'&&drawBox){
-        drawBox.curWorld=screenToWorld(t.clientX-rect.left,t.clientY-rect.top);
-        const x0=Math.min(drawBox.startWorld.x,drawBox.curWorld.x),y0=Math.min(drawBox.startWorld.y,drawBox.curWorld.y);
-        const x1=Math.max(drawBox.startWorld.x,drawBox.curWorld.x),y1=Math.max(drawBox.startWorld.y,drawBox.curWorld.y);
-        const sr=snapRect(x0,y0,x1-x0,y1-y0),scr=worldToScreen(sr.x,sr.y);
-        updateGhost(scr.x,scr.y,sr.w*camera.zoom,sr.h*camera.zoom,drawBox.type);
-      } else if(drag.type==='select'&&selBox){
-        selBox.curWorld=screenToWorld(t.clientX-rect.left,t.clientY-rect.top);
-        drawSelBox();
       }
     }
   },{passive:false});
-  rootEl.addEventListener('touchend',e=>{
+  rootEl.addEventListener('touchend',()=>{
     if(touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
-    
-    // Logic mirrored from pointerup for touch consistency
-    if(drag?.type==='draw'&&drawBox){
-      hideGhost();
-      const x0=Math.min(drawBox.startWorld.x,drawBox.curWorld.x),y0=Math.min(drawBox.startWorld.y,drawBox.curWorld.y);
-      const x1=Math.max(drawBox.startWorld.x,drawBox.curWorld.x),y1=Math.max(drawBox.startWorld.y,drawBox.curWorld.y);
-      const sr=snapRect(x0,y0,x1-x0,y1-y0),min=MIN_DRAW[drawBox.type];
-      const snapped=snapRect(sr.x,sr.y,Math.max(sr.w,min.w),Math.max(sr.h,min.h));
-      const w=createWidget(drawBox.type,snapped.x,snapped.y);w.w=snapped.w;w.h=snapped.h;
-      state.widgets[w.id]=w;pendingChanges.add(w.id);renderWidget(w);setSelected([w.id]);setTool('select');save();drawBox=null;
-    }
-    if(drag?.type==='select'&&selBox)commitSelBox();
-    if(drag?.type==='move'){
-      state.selectedIds.forEach(id=>{
-        const ww=state.widgets[id];if(!ww||ww.locked)return;
-        const sn=snapRect(ww.x,ww.y,ww.w,ww.h);updateWidget(id,{x:sn.x,y:sn.y});
-        const el2=document.getElementById('w-'+id);if(el2){el2.style.left=sn.x+'px';el2.style.top=sn.y+'px';}
-      });
-      renderConnections(); if (state.minimapVisible) updateMinimap(); save();
-    }
-    
-    pinch=null;drag=null;clearSelBoxUI();save();
+    pinch=null;drag=null;save();
   });
 
   rootEl.addEventListener('pointerdown', () => closeWidgetContextMenu(), {capture:true});
