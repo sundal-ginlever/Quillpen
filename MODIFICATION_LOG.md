@@ -33,6 +33,19 @@
     - Updated `<title>` to **Quillpen**.
     - Added an inline SVG favicon to resolve the `404 /favicon.ico` error.
 
-## Status: DEPLOYED
-All changes have been committed and pushed to the main branch.
-Next recommendation: Verify spreadsheet stability during widget deletion and canvas navigation.
+### 6. Architectural Shift: Local-First + Manual Sync
+- **Files**: `js/sync.js`, `js/app.js`, `index.html`, `css/main.css`
+- **Changes**:
+    - **Auto-Push Disabled**: Removed the automatic 1.2s cloud sync trigger to reduce network overhead and "orange dot" anxiety.
+    - **Instant Local Save**: Maintained `saveLocal()` on every change. Data is now 100% safe in the browser's LocalStorage immediately.
+    - **Manual Sync Button**: Added a **"☁ 저장" (Cloud Save)** button next to the sync indicator.
+    - **Keyboard Shortcut**: Implemented **`Ctrl + S`** (or Cmd+S) to trigger manual synchronization to Supabase.
+    - **Sync State UI**: 
+        - 🟢 **서버와 일치**: Local and Cloud are in sync.
+        - 🟡 **동기화 필요**: Local has newer changes not yet pushed to Cloud.
+        - 🟠 **서버 저장 중...**: Sync in progress.
+- **Reason**: To eliminate latency-related anxiety and give the user full control over when to commit their work to the cloud.
+
+## Status: DEPLOYED (Manual Sync Mode)
+All changes have been committed and pushed.
+Next recommendation: Use `Ctrl + S` frequently or click the Cloud Save button after major edits.
