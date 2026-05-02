@@ -58,9 +58,12 @@
 </div>
 
 <!-- ── SYNC INDICATOR ── -->
-<div id="sync-indicator" onclick="openCanvasPicker()">
-  <div class="sync-dot" id="sync-dot"></div>
-  <span id="sync-text">연결 중...</span>
+<div id="sync-indicator">
+  <div class="sync-wrap" onclick="openCanvasPicker()">
+    <div class="sync-dot" id="sync-dot"></div>
+    <span id="sync-text">연결 중...</span>
+  </div>
+  <button id="manual-save-btn" class="manual-save-btn" onclick="_appModules.flushToCloud()" title="서버에 저장 (Ctrl+S)">☁ 저장</button>
 </div>
 
 <!-- ── PHASE 3: SHARE MODAL ── -->

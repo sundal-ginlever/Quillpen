@@ -35,23 +35,21 @@ export function setSyncState(state_name, label) {
 
 export function schedulePush() {
   if (!currentUser || !sb || !currentCanvasId || currentCanvasId === 'local') return;
-  clearTimeout(syncTimer);
-  if (!isSyncing) setSyncState('syncing', '동기화 대기...');
-  syncTimer = setTimeout(flushToCloud, 1200);
+  // Manual mode: No longer auto-pushing. Just notifying.
+  setSyncState('pending', '동기화 필요');
 }
 
 export async function flushToCloud() {
   if (!sb || !currentUser || !currentCanvasId || currentCanvasId === 'local') return;
-  if (isSyncing) {
-    schedulePush(); // Chain
+  if (isSyncing) return;
+  if (pendingChanges.size === 0) {
+    setSyncState('synced', '서버와 일치');
     return;
   }
-  if (pendingChanges.size === 0) return;
 
   isSyncing = true;
-  setSyncState('syncing', '동기화 중...');
+  setSyncState('syncing', '서버 저장 중...');
   const idsToPush = Array.from(pendingChanges);
-  idsToPush.forEach(id => pendingChanges.delete(id)); // Move to syncing buffer
 
   try {
     const rows = [];
@@ -66,23 +64,30 @@ export async function flushToCloud() {
         });
       }
     });
+
     if (rows.length > 0) {
       const { error } = await sb.from('q_widgets').upsert(rows, { onConflict: 'id' });
       if (error) throw error;
     }
+    
+    // Success: Clear those specific IDs from pending
+    idsToPush.forEach(id => pendingChanges.delete(id));
+
     await sb.from('q_canvases').update({
       camera: { x: camera.x, y: camera.y, zoom: camera.zoom },
       settings: { showGrid: state.showGrid, snapOn: state.snapOn, connections: state.connections },
       updated_at: new Date().toISOString(),
     }).eq('id', currentCanvasId);
-    setSyncState('synced', '저장됨');
+
+    setSyncState('synced', '저장 완료');
+    setTimeout(() => {
+      if (pendingChanges.size === 0) setSyncState('synced', '서버와 일치');
+    }, 2000);
   } catch (err) {
-    console.error('sync error', err);
-    idsToPush.forEach(id => pendingChanges.add(id)); // Revert to pending on error
-    setSyncState('error', '동기화 실패');
+    console.error('Manual sync error', err);
+    setSyncState('error', '저장 실패');
   } finally { 
     isSyncing = false; 
-    if (pendingChanges.size > 0) schedulePush(); // Chain
   }
 }
 
@@ -301,8 +306,7 @@ export function loadLocal() {
 }
 
 export function save() {
-  // Take snapshot before applying remote change
   events.emit('undo:snapshot');
   saveLocal();
-  schedulePush();
+  schedulePush(); // Just sets UI to "pending sync"
 }

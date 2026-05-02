@@ -142,6 +142,15 @@ initCanvasPickerEvents();
 // Init search events
 initSearchEvents();
 
+// Global Keyboard Shortcuts
+document.addEventListener('keydown', e => {
+  // Ctrl + S: Manual Sync
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    flushToCloud();
+  }
+});
+
 // Init auth UI event listeners
 document.addEventListener('DOMContentLoaded', () => {
   initAuthUI();
