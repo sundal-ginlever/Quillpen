@@ -163,6 +163,7 @@ export async function loadFromCloud() {
     console.error('load error', err);
     loadLocal();
     setSyncState('offline', '오프라인');
+    events.emit('app:start'); // Ensure app starts even on error
   }
 }
 

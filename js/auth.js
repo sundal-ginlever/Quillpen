@@ -10,11 +10,35 @@ import { setSyncState, loadFromCloud } from './sync.js';
 export async function initAuth() {
   const ok = await loadSupabase();
   if (!ok || isDemo()) { startDemo(); return; }
-  const { data: { session } } = await sb.auth.getSession();
-  if (session?.user) { setCurrentUser(session.user); await afterLogin(); }
-  else { showAuthScreen(); }
-  sb.auth.onAuthStateChange(async (_event, session) => {
-    if (session?.user) { setCurrentUser(session.user); await afterLogin(); }
+
+  try {
+    const { data: { session }, error } = await sb.auth.getSession();
+    if (error) {
+      console.warn('Auth Session Error:', error.message);
+      await sb.auth.signOut();
+      showAuthScreen();
+      return;
+    }
+    if (session?.user) { 
+      setCurrentUser(session.user); 
+      await afterLogin(); 
+    } else { 
+      showAuthScreen(); 
+    }
+  } catch (err) {
+    console.error('Auth critical error:', err);
+    showAuthScreen();
+  }
+
+  sb.auth.onAuthStateChange(async (event, session) => {
+    if (session?.user) { 
+      setCurrentUser(session.user); 
+      await afterLogin(); 
+    } else if (event === 'SIGNED_OUT') {
+      location.reload(); // Refresh to clear state
+    } else {
+      showAuthScreen();
+    }
   });
 }
 
