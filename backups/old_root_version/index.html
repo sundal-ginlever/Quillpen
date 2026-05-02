@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Quillpen — Modularized</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/src/styles/main.css">
+  <style>
+    /* Critical Splash Screen Style */
+    #loading-screen { position: fixed; inset: 0; background: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10000; transition: opacity 0.4s; }
+    .loader { width: 40px; height: 40px; border: 3px solid #e2e8f0; border-top-color: #6366f1; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="loading-screen">
+    <div class="loader"></div>
+    <div style="margin-top: 16px; font-family: Outfit, sans-serif; font-weight: 600; color: #6366f1;">QUILLPEN</div>
+  </div>
+
+  <div id="root" style="display:none">
+    <!-- Main Canvas Layers -->
+    <canvas id="grid-canvas"></canvas>
+    <div id="world">
+      <!-- Widgets and connections will be rendered here -->
+      <svg id="connections-layer">
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="var(--accent)" opacity="0.6" />
+          </marker>
+        </defs>
+        <g id="conn-group"></g>
+        <path id="ghost-conn" class="conn-path-ghost" d="" style="display:none" />
+      </svg>
+    </div>
+    <div id="sel-overlay"></div>
+
+    <!-- UI Components -->
+    <nav id="toolbar"></nav>
+    <div id="statusbar"></div>
+    
+    <div id="sync-indicator">
+      <div id="sync-dot" class="sync-dot synced"></div>
+      <span id="sync-text">동기화 완료</span>
+    </div>
+
+    <div id="tool-label" style="display:none"></div>
+    <div id="undo-toast" class="undo-toast">실행 취소</div>
+    <div id="fit-flash" class="fit-flash"></div>
+
+    <!-- Modals -->
+    <div id="auth-screen" class="modal-overlay" style="display:none">
+      <div class="auth-card glass">
+        <h1 class="auth-logo">QUILLPEN</h1>
+        <p class="auth-desc">아이디어를 무한한 캔버스에 기록하세요</p>
+        <div id="auth-ui-container"></div>
+      </div>
+    </div>
+
+    <div id="canvas-picker" class="modal-overlay" style="display:none">
+      <div class="picker-card glass">
+        <div class="picker-header">
+          <h2>내 캔버스</h2>
+          <button onclick="createNewCanvas()" class="btn-primary">+ 새 캔버스</button>
+        </div>
+        <div id="picker-list" class="picker-list"></div>
+      </div>
+    </div>
+
+    <div id="share-modal" class="modal-overlay" style="display:none">
+      <div class="modal-card glass">
+        <h3>캔버스 공유</h3>
+        <p>링크가 있는 모든 사용자가 이 캔버스를 볼 수 있습니다.</p>
+        <div class="share-ctrl">
+          <input type="text" id="share-url-input" readonly>
+          <button id="copy-share-btn" onclick="copyShareUrl()">복사</button>
+        </div>
+        <div class="share-toggle-wrap">
+          <label class="switch">
+            <input type="checkbox" id="share-enabled" onchange="toggleShareEnabled(this.checked)">
+            <span class="slider round"></span>
+          </label>
+          <span>공유 활성화</span>
+        </div>
+        <button onclick="closeShareModal()" class="btn-close">닫기</button>
+      </div>
+    </div>
+
+    <div id="search-bar" class="search-bar-wrap">
+      <div class="search-inner">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="search-input" placeholder="메모, 표, 이미지 검색 (Ctrl+F)">
+        <div class="search-nav">
+          <span id="search-count"></span>
+          <button onclick="searchNav(-1)">↑</button>
+          <button onclick="searchNav(1)">↓</button>
+          <button onclick="closeSearch()">×</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Minimap -->
+    <div id="minimap-container" style="display:none">
+      <canvas id="minimap-canvas"></canvas>
+      <div id="minimap-viewport"></div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
