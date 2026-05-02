@@ -1,24 +1,24 @@
-# Quillpen Modification Log - 2026-05-02
+## Implementation Details
 
-## Overview
-This log records the changes made to the Quillpen project to address deployment-related issues, specifically the Auth Session error (Invalid Refresh Token) and synchronization stability.
-
-## 1. Auth Robustness Enhancement
+### 1. Auth Robustness Enhancement
 - **File**: `js/auth.js`
-- **Change**: Added try-catch and error handling to `initAuth()`.
-- **Reason**: To clear stale or invalid session tokens when moving between domains or deployment paths, preventing the "Invalid Refresh Token" hang.
+- **Changes**:
+    - Wrapped `sb.auth.getSession()` in a `try-catch` block.
+    - Added logic to catch `error` from `getSession()`. If an error occurs, `sb.auth.signOut()` is executed to clear the invalid refresh token from the browser.
+    - Updated `onAuthStateChange` to handle the `SIGNED_OUT` event by reloading the page (`location.reload()`), ensuring a clean state for the next login attempt.
 
-## 2. Sync Resilience Optimization
+### 2. Sync Resilience Optimization
 - **File**: `js/sync.js`
-- **Change**: Added fallback mechanism in `loadFromCloud()`.
-- **Reason**: To ensure `app:start` is emitted even if cloud sync fails, allowing the app to run in local/offline mode.
+- **Changes**:
+    - In `loadFromCloud()`, added `events.emit('app:start')` to the `catch` block.
+    - This ensures that even if cloud data loading fails (due to network or auth issues), the application UI will still unhide and initialize in local mode, preventing a perpetual loading screen.
 
-## 3. Spreadsheet Widget Stability
-- **File**: `js/widgets/spreadsheet.js`
-- **Change**: Ensured consistent default data initialization.
-- **Reason**: To prevent the "Preparing..." hang when data is missing or corrupted.
-
-## 4. UI/UX Polishing
+### 3. UI/UX Polishing
 - **File**: `index.html`
-- **Change**: Added favicon reference and SEO title update.
-- **Reason**: To resolve 404 errors and align with the "Quillpen" brand name.
+- **Changes**:
+    - Updated `<title>` to **Quillpen**.
+    - Added an inline SVG favicon to resolve the `404 /favicon.ico` error and provide a consistent brand icon.
+
+## Status: DEPLOYED
+All changes have been committed and pushed to the main branch.
+Next recommendation for the user: Clear browser cache/storage or perform a fresh login to verify the fix.
