@@ -97,7 +97,7 @@ export function renderSpreadsheet(w) {
     try {
       luckysheet.create({
         container: luckyContainerId,
-        lang: 'en', // Luckysheet는 기본적으로 한국어('ko')를 지원하지 않아 크래시(functionlist 에러)가 발생합니다.
+        lang: 'en',
         data: initialData,
         showtoolbar: false,
         showinfobar: false,
@@ -105,31 +105,43 @@ export function renderSpreadsheet(w) {
         showstatisticBar: false,
         sheetFormulaBar: true,
         enableAddRow: true,
-        allowUpdate: false, // true로 설정하면 자체 웹소켓 연동을 시도하여 무한 Loading 현상이 발생합니다.
+        allowUpdate: false,
         gridKey: w.id,
         hook: {
           updated: function() {
             if (w._luckyUpdateTimeout) clearTimeout(w._luckyUpdateTimeout);
             w._luckyUpdateTimeout = setTimeout(() => {
+              // Ensure the widget still exists before saving
+              if (!document.getElementById('w-' + w.id)) return;
               w.luckyData = luckysheet.getAllSheets();
               w.updatedAt = Date.now();
               events.emit('pending:add', w.id);
               events.emit('app:save');
-            }, 500); // 500ms 디바운스로 성능 향상
+            }, 500);
           }
         }
       });
       
-      // 생성 직후 리사이즈 강제 실행 (백지 현상 방지)
-      setTimeout(() => { if (typeof luckysheet !== 'undefined') luckysheet.resize(); }, 100);
+      const safeResize = () => {
+        try {
+          if (typeof luckysheet !== 'undefined' && document.getElementById(luckyContainerId)) {
+            luckysheet.resize();
+          }
+        } catch (e) { console.warn('Luckysheet resize suppressed', e); }
+      };
 
-      const ro = new ResizeObserver(() => { if (typeof luckysheet !== 'undefined') luckysheet.resize(); });
+      setTimeout(safeResize, 150);
+
+      const ro = new ResizeObserver(() => {
+        if (w._resizeTimer) clearTimeout(w._resizeTimer);
+        w._resizeTimer = setTimeout(safeResize, 100);
+      });
+
       ro.observe(el);
       el._cleanupFn = () => {
         ro.disconnect();
         if (w._luckyUpdateTimeout) clearTimeout(w._luckyUpdateTimeout);
-        // Luckysheet는 싱글톤 성격이 강해 삭제 시 컨테이너를 비워주지 않으면 
-        // 다음 위젯 생성 시 내부 요소 참조 오류(style of null)가 발생합니다.
+        if (w._resizeTimer) clearTimeout(w._resizeTimer);
         const luckyDiv = document.getElementById(luckyContainerId);
         if (luckyDiv) luckyDiv.innerHTML = ''; 
       };

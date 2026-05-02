@@ -13,6 +13,14 @@ const storage = {
   removeItem: (key) => localStorage.removeItem(key)
 };
 
+// Sync on Tab Close / Visibility Change
+window.addEventListener('beforeunload', () => {
+  saveLocal(); // Ensure local storage is always up to date
+});
+window.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') saveLocal();
+});
+
 export let syncTimer = null;
 export let realtimeSub = null;
 export let isSyncing = false;
