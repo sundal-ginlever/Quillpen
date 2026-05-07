@@ -46,6 +46,14 @@
         - 🟠 **서버 저장 중...**: Sync in progress.
 - **Reason**: To eliminate latency-related anxiety and give the user full control over when to commit their work to the cloud.
 
-## Status: DEPLOYED (Manual Sync Mode)
+### 7. Responsive UI for Narrow Screens
+- **Files**: `css/main.css`, `js/toolbar.js`
+- **Changes**:
+    - **Toolbar Wrapping**: Added media queries (`max-width: 768px`) to enforce `flex-wrap: wrap` and `max-width: 95vw` on the top toolbar so it doesn't overflow horizontally on mobile or split-screen browsers.
+    - **Sync Indicator Repositioning**: Moved the `#sync-indicator` to the bottom-right on small screens to prevent it from overlapping with the expanded toolbar.
+    - **Statusbar Optimization**: Added a `.hide-on-mobile` class to hide less important text in the bottom-left status bar to conserve screen real estate.
+- **Reason**: To improve usability on mobile devices and narrow browser windows where the long toolbar was previously cut off.
+
+## Status: DEPLOYED
 All changes have been committed and pushed.
-Next recommendation: Use `Ctrl + S` frequently or click the Cloud Save button after major edits.
+Next recommendation: Test the UI on a mobile device or by resizing the browser window to confirm layout stability.

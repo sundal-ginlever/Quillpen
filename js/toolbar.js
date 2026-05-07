@@ -115,7 +115,7 @@ export function updateStatusBar(){
   const sb2=document.getElementById('statusbar');if(!sb2)return;
   const cnt=Object.keys(state.widgets).length,zp=Math.round(camera.zoom*100);
   sb2.style.cssText='position:absolute;bottom:20px;left:20px;background:var(--header-bg);backdrop-filter:blur(10px);border-radius:10px;padding:6px 14px;box-shadow:var(--shadow);border:1px solid var(--border-color);font-size:11px;color:var(--app-text-muted);font-family:monospace;z-index:100;display:flex;gap:14px;align-items:center';
-  const tipMap={select:'Del=삭제 · Shift+클릭=다중선택',hand:'드래그로 캔버스 이동',memo:'드래그로 메모 생성',sketch:'드래그로 스케치 생성',spreadsheet:'드래그로 표 생성',image:'드래그로 이미지 생성'};
+  const tipMap={select:'Del=삭제 · Shift=다중선택',hand:'드래그로 캔버스 이동',memo:'드래그로 메모 생성',sketch:'드래그로 스케치 생성',spreadsheet:'드래그로 표 생성',image:'드래그로 이미지 생성'};
   const tip = tipMap[state.activeTool] || '';
-  sb2.innerHTML=`<span style="color:var(--accent);font-weight:700">INKCANVAS</span><span style="opacity:0.6">|</span><span style="color:#475569">${cnt} Widgets</span><span style="color:#475569">Zoom ${zp}%</span><span style="opacity:0.6">|</span><span style="color:#6366f1">${sanitize(tip)}</span>`;
+  sb2.innerHTML=`<span style="color:var(--accent);font-weight:700" class="hide-on-mobile">INKCANVAS</span><span style="opacity:0.6" class="hide-on-mobile">|</span><span style="color:#475569">${cnt} Widgets</span><span style="color:#475569">Zoom ${zp}%</span><span style="opacity:0.6" class="hide-on-mobile">|</span><span style="color:#6366f1" class="hide-on-mobile">${sanitize(tip)}</span>`;
 }
