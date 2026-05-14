@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════
 // SYNC ENGINE — Cloud + Local Storage
 // ══════════════════════════════════════════
-import { LOCAL_KEY } from './config.js';
+import { LOCAL_KEY_LIVE, LOCAL_KEY_SYNCED, LOCAL_KEY_BACKUP, OLD_LOCAL_KEY } from './config.js';
 import { state, camera, currentUser, currentCanvasId, setCurrentCanvasName } from './state.js';
 import { sb } from './supabase.js';
 import { events } from './events.js';
@@ -80,6 +80,19 @@ export async function flushToCloud() {
     }).eq('id', currentCanvasId);
 
     setSyncState('synced', '저장 완료');
+    
+    // Update synced slot
+    const liveStr = storage.getItem(LOCAL_KEY_LIVE);
+    if (liveStr) {
+      try {
+        const live = JSON.parse(liveStr);
+        if (live.widgets) {
+          storage.setItem(LOCAL_KEY_SYNCED, JSON.stringify({ hash: getHash(live.widgets), timestamp: Date.now() }));
+          storage.removeItem(LOCAL_KEY_BACKUP);
+        }
+      } catch(e) {}
+    }
+
     setTimeout(() => {
       if (pendingChanges.size === 0) setSyncState('synced', '서버와 일치');
     }, 2000);
@@ -92,7 +105,7 @@ export async function flushToCloud() {
 }
 
 function widgetData(w) {
-  if (w.type === 'memo') return { content: w.content, color: w.color, fontSize: w.fontSize };
+  if (w.type === 'memo') return { content: w.content, title: w.title || '', color: w.color, fontSize: w.fontSize };
   if (w.type === 'sketch') return { strokes: w.strokes, strokeColor: w.strokeColor, strokeWidth: w.strokeWidth };
   if (w.type === 'image') return { src: w.src, alt: w.alt, objectFit: w.objectFit };
   if (w.type === 'spreadsheet') return {
@@ -112,7 +125,7 @@ export async function loadFromCloud() {
     // Read local storage to merge offline changes
     let localWidgets = {};
     try {
-      const d = JSON.parse(storage.getItem(LOCAL_KEY) || 'null');
+      const d = JSON.parse(storage.getItem(LOCAL_KEY_LIVE) || 'null');
       if (d && d.widgets) localWidgets = d.widgets;
     } catch(e) {}
 
@@ -245,6 +258,8 @@ function handleRealtimeChange(payload) {
         if (w.type === 'memo') {
           const ta = el.querySelector('textarea');
           if (ta && document.activeElement !== ta) ta.value = w.content || '';
+          const titleInput = el.querySelector('.memo-title-input');
+          if (titleInput && document.activeElement !== titleInput) titleInput.value = w.title || '';
           el.style.background = w.color || '#fefce8';
         }
         if (w.type === 'spreadsheet') { el.remove(); events.emit('widget:render', w); }
@@ -275,13 +290,13 @@ export function saveLocal() {
       }
       plain[w.id] = copy;
     });
-    storage.setItem(LOCAL_KEY, JSON.stringify({ widgets: plain, camera: { ...camera }, showGrid: state.showGrid, snapOn: state.snapOn, connections: state.connections }));
+    storage.setItem(LOCAL_KEY_LIVE, JSON.stringify({ widgets: plain, camera: { ...camera }, showGrid: state.showGrid, snapOn: state.snapOn, connections: state.connections }));
   } catch (e) { console.error('saveLocal failed', e); }
 }
 
 export function loadLocal() {
   try {
-    const d = JSON.parse(storage.getItem(LOCAL_KEY) || 'null');
+    const d = JSON.parse(storage.getItem(LOCAL_KEY_LIVE) || 'null');
     if (!d) return;
     if (d.camera) { camera.x = d.camera.x; camera.y = d.camera.y; camera.zoom = d.camera.zoom; }
     if (d.showGrid !== undefined) state.showGrid = d.showGrid;
@@ -309,4 +324,72 @@ export function save() {
   events.emit('undo:snapshot');
   saveLocal();
   schedulePush(); // Just sets UI to "pending sync"
+}
+
+// ── VERSIONING UTILS ──
+
+function getHash(data) {
+  const s = JSON.stringify(data);
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  return h.toString(36);
+}
+
+export async function checkLocalVersionConflict() {
+  const live = storage.getItem(LOCAL_KEY_LIVE);
+  if (!live) { migrateOldData(); return; }
+  
+  const synced = JSON.parse(storage.getItem(LOCAL_KEY_SYNCED) || 'null');
+  if (!synced) return;
+
+  const liveObj = JSON.parse(live);
+  const liveHash = getHash(liveObj.widgets || {});
+  if (liveHash !== synced.hash) {
+    // Conflict! Live data has changed since last cloud sync
+    storage.setItem(LOCAL_KEY_BACKUP, live);
+    const alert = document.getElementById('local-version-alert');
+    if (alert) alert.style.display = 'block';
+  }
+}
+
+function migrateOldData() {
+  const old = storage.getItem(OLD_LOCAL_KEY);
+  if (old) {
+    storage.setItem(LOCAL_KEY_LIVE, old);
+    storage.removeItem(OLD_LOCAL_KEY);
+  }
+}
+
+export function restoreFromBackup() {
+  const backupStr = storage.getItem(LOCAL_KEY_BACKUP);
+  if (!backupStr) return;
+  try {
+    const backup = JSON.parse(backupStr);
+    if (!backup.widgets) return;
+    
+    // Merge backup into current state
+    Object.values(backup.widgets).forEach(w => {
+      const existing = state.widgets[w.id];
+      if (!existing || w.updatedAt > (existing.updatedAt || 0)) {
+        if (w.type === 'spreadsheet') {
+          w.boldCells = new Set(w.boldCells || []); w.italicCells = new Set(w.italicCells || []);
+          w.colWidths = w.colWidths || {}; w.rowHeights = w.rowHeights || {}; w.cellFmt = w.cellFmt || {};
+        }
+        state.widgets[w.id] = w;
+        const el = document.getElementById('w-' + w.id);
+        if (el) el.remove();
+        events.emit('widget:render', w);
+        pendingChanges.add(w.id);
+      }
+    });
+    save();
+    discardBackup();
+    events.emit('toast:show', '로컬 데이터가 병합되었습니다.');
+  } catch(e) { console.error('restoreFromBackup failed', e); }
+}
+
+export function discardBackup() {
+  storage.removeItem(LOCAL_KEY_BACKUP);
+  const alert = document.getElementById('local-version-alert');
+  if (alert) alert.style.display = 'none';
 }

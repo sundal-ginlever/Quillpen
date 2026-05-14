@@ -30,7 +30,7 @@ export function runSearch(q) {
   const lower = q.toLowerCase();
   Object.values(state.widgets).forEach(w => {
     let hit = false;
-    if (w.type === 'memo' && w.content?.toLowerCase().includes(lower)) hit = true;
+    if (w.type === 'memo' && (w.content?.toLowerCase().includes(lower) || w.title?.toLowerCase().includes(lower))) hit = true;
     if (w.type === 'spreadsheet') { Object.values(w.cells || {}).forEach(v => { if (String(v).toLowerCase().includes(lower)) hit = true; }); }
     if (w.type === 'image' && w.alt?.toLowerCase().includes(lower)) hit = true;
     if (hit) searchResults.push(w.id);

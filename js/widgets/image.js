@@ -6,10 +6,39 @@ import { resizeHandleHTML, attachResizeHandle } from '../utils.js';
 import { events } from '../events.js';
 import { updateWidget, deleteWidget } from './core.js';
 
+export function processImageFile(file, widgetId, onComplete) {
+  if (!file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    let dataUrl = e.target.result;
+    if (file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) {
+      try {
+        const raw = atob(dataUrl.split(',')[1] || '');
+        const doc = new DOMParser().parseFromString(raw, 'image/svg+xml');
+        doc.querySelectorAll('script, foreignObject, iframe, embed, object, link, style').forEach(el => el.remove());
+        doc.querySelectorAll('*').forEach(el => {
+          [...el.attributes].forEach(attr => {
+            if (attr.name.toLowerCase().startsWith('on') || attr.name === 'href' && attr.value.trim().toLowerCase().startsWith('javascript:'))
+              el.removeAttribute(attr.name);
+          });
+        });
+        const clean = new XMLSerializer().serializeToString(doc.documentElement);
+        dataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(clean)));
+      } catch { /* safe via <img> sandbox */ }
+    }
+    updateWidget(widgetId, { src: dataUrl, alt: file.name || 'pasted-image' });
+    if (state.widgets[widgetId]) state.widgets[widgetId].src = dataUrl;
+    if (onComplete) onComplete(dataUrl);
+    events.emit('app:save');
+  };
+  reader.readAsDataURL(file);
+}
+
 export function renderImage(w) {
   const el = document.createElement('div');
   el.id = 'w-' + w.id; el.dataset.widgetId = w.id; el.className = 'widget';
   el.style.cssText = `left:${w.x}px;top:${w.y}px;width:${w.w}px;height:${w.h}px;background:var(--surface);border:1px solid var(--border-color);display:flex;flex-direction:column;overflow:hidden`;
+  el.tabIndex = 0; // Make focusable for paste events
 
   el.innerHTML = `
     <div class="drag-bar" style="height:32px;background:var(--header-bg);display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid var(--border-dim);flex-shrink:0">
@@ -59,31 +88,7 @@ export function renderImage(w) {
   el.appendChild(fileInput);
 
   function loadFile(file) {
-    if (!file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = e => {
-      let dataUrl = e.target.result;
-      if (file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) {
-        try {
-          const raw = atob(dataUrl.split(',')[1] || '');
-          const doc = new DOMParser().parseFromString(raw, 'image/svg+xml');
-          doc.querySelectorAll('script, foreignObject, iframe, embed, object, link, style').forEach(el => el.remove());
-          doc.querySelectorAll('*').forEach(el => {
-            [...el.attributes].forEach(attr => {
-              if (attr.name.toLowerCase().startsWith('on') || attr.name === 'href' && attr.value.trim().toLowerCase().startsWith('javascript:'))
-                el.removeAttribute(attr.name);
-            });
-          });
-          const clean = new XMLSerializer().serializeToString(doc.documentElement);
-          dataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(clean)));
-        } catch { /* safe via <img> sandbox */ }
-      }
-      updateWidget(w.id, { src: dataUrl, alt: file.name });
-      state.widgets[w.id].src = dataUrl;
-      renderSrc(dataUrl);
-      events.emit('app:save');
-    };
-    reader.readAsDataURL(file);
+    processImageFile(file, w.id, (src) => renderSrc(src));
   }
 
   fitSel.addEventListener('change', e => {
@@ -102,6 +107,19 @@ export function renderImage(w) {
     e.preventDefault(); e.stopPropagation();
     const file = e.dataTransfer.files[0];
     if (file && file.type.startsWith('image/')) loadFile(file);
+  });
+
+  // Paste handler
+  el.addEventListener('paste', e => {
+    const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+    for (const item of items) {
+      if (item.type.indexOf('image') !== -1) {
+        e.preventDefault();
+        e.stopPropagation();
+        const file = item.getAsFile();
+        loadFile(file);
+      }
+    }
   });
 
   renderSrc(w.src);

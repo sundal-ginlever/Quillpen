@@ -8,7 +8,8 @@ import { applyCamera, startCameraLoop, screenToWorld, worldToScreen, pan, zoomAt
 import { toggleMinimap, updateMinimap } from './minimap.js';
 import { renderConnections, getAnchorPos, getBezierPath } from './connections.js';
 import { createWidget, renderWidget, updateWidget, deleteWidget, bringToFront, setSelected } from './widgets/core.js';
-import { save, saveLocal, loadLocal, pendingChanges, setSyncState, flushToCloud, loadFromCloud, rowToWidget } from './sync.js';
+import { save, saveLocal, loadLocal, pendingChanges, setSyncState, flushToCloud, loadFromCloud, rowToWidget, restoreFromBackup, discardBackup, checkLocalVersionConflict } from './sync.js';
+import { processImageFile } from './widgets/image.js';
 import { initAuth, initAuthUI } from './auth.js';
 import { openCanvasPicker, closeCanvasPicker, createNewCanvas, switchCanvas, clearCanvas, initCanvasPickerEvents } from './canvas-manager.js';
 import { buildToolbar, setTool, updateStatusBar, TOOLS } from './toolbar.js';
@@ -65,6 +66,7 @@ window._appModules = {
   renderWidget, updateWidget, deleteWidget, bringToFront, setSelected, createWidget,
   // Sync
   save, saveLocal, loadLocal, flushToCloud, loadFromCloud, rowToWidget, setSyncState,
+  restoreFromBackup, discardBackup,
   // UI
   buildToolbar, setTool, updateStatusBar, renderConnections, updateMinimap,
   // Undo
@@ -118,6 +120,7 @@ function createWidgetAtCenter(type) {
 // ══════════════════════════════════════════
 function startCanvas() {
   document.getElementById('root').style.display = 'block';
+  checkLocalVersionConflict();
   initInteraction();
   buildToolbar();
   applyCamera();
@@ -204,6 +207,45 @@ document.addEventListener('drop', e => {
     save();
   };
   reader.readAsDataURL(file);
+});
+
+// Clipboard paste handler
+document.addEventListener('paste', e => {
+  const t = e.target;
+  if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
+  const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+  for (const item of items) {
+    if (item.type.indexOf('image') !== -1) {
+      e.preventDefault();
+      const file = item.getAsFile();
+      const rootEl = document.getElementById('root');
+      if (!rootEl) return;
+      const x = window._lastMouseX !== undefined ? window._lastMouseX : window.innerWidth / 2;
+      const y = window._lastMouseY !== undefined ? window._lastMouseY : window.innerHeight / 2;
+      const wp = screenToWorld(x, y);
+      const w = createWidget('image', wp.x - 140, wp.y - 100);
+      state.widgets[w.id] = w; pendingChanges.add(w.id); renderWidget(w); setSelected([w.id]);
+      processImageFile(file, w.id, (src) => {
+        const imgEl = document.getElementById('w-' + w.id);
+        if (imgEl) {
+          const content = imgEl.querySelector('.img-content');
+          if (content) {
+            content.innerHTML = '';
+            const img = document.createElement('img');
+            img.src = src;
+            img.style.cssText = 'width:100%;height:100%;object-fit:contain';
+            content.appendChild(img);
+          }
+        }
+      });
+    }
+  }
+});
+
+// Track mouse for paste position
+window.addEventListener('mousemove', e => {
+  window._lastMouseX = e.clientX;
+  window._lastMouseY = e.clientY;
 });
 
 // ══════════════════════════════════════════

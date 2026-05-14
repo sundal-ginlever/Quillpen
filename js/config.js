@@ -4,7 +4,10 @@
 export const SUPABASE_URL  = 'https://wxpydmganondhvlwcimz.supabase.co';
 export const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind4cHlkbWdhbm9uZGh2bHdjaW16Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMTc1ODAsImV4cCI6MjA5MDY5MzU4MH0.jjB0M0Z8KK507_ILXaT9ybSTPfMDyX4Rp3v5gZE5bGM';
 
-export const LOCAL_KEY = 'inkcanvas_local_v2';
+export const LOCAL_KEY_LIVE = 'qp_local_live';
+export const LOCAL_KEY_SYNCED = 'qp_local_synced';
+export const LOCAL_KEY_BACKUP = 'qp_local_backup';
+export const OLD_LOCAL_KEY = 'inkcanvas_local_v2';
 export const SNAP = 20;
 export const MIN_ZOOM = 0.05;
 export const MAX_ZOOM = 8;

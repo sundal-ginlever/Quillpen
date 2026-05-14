@@ -62,7 +62,7 @@ export function setSelected(ids) {
 export function createWidget(type, wx, wy) {
   const id = nanoid();
   const defaults = {
-    memo:        { w: 240, h: 180, content: '', color: '#fefce8', fontSize: 14 },
+    memo:        { w: 240, h: 180, content: '', title: '', color: '#fefce8', fontSize: 14 },
     sketch:      { w: 320, h: 240, strokes: [], strokeColor: '#1e293b', strokeWidth: 2 },
     spreadsheet: { w: 380, h: 260, rows: 6, cols: 5, cells: {}, luckyData: null },
     image:       { w: 280, h: 200, src: '', alt: '', objectFit: 'contain' },

@@ -65,6 +65,19 @@
   </div>
   <button id="manual-save-btn" class="manual-save-btn" onclick="_appModules.flushToCloud()" title="서버에 저장 (Ctrl+S)">☁ 저장</button>
 </div>
+<!-- ── LOCAL VERSION ALERT ── -->
+<div id="local-version-alert" class="local-version-alert" style="display:none">
+  <div class="alert-content">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="alert-icon">⚠️</span>
+      <span class="alert-msg">동기화되지 않은 이전 로컬 버전이 있습니다.</span>
+    </div>
+    <div class="alert-actions">
+      <button class="alert-btn restore" onclick="_appModules.restoreFromBackup()">로컬 병합</button>
+      <button class="alert-btn discard" onclick="_appModules.discardBackup()">서버 유지</button>
+    </div>
+  </div>
+</div>
 
 <!-- ── PHASE 3: SHARE MODAL ── -->
 <div id="share-modal" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeShareModal()">
