@@ -111,6 +111,10 @@ function widgetData(w) {
   if (w.type === 'spreadsheet') return {
     rows: w.rows, cols: w.cols, cells: w.cells,
     luckyData: w.luckyData || null,
+    jdata: w.jdata || null,
+    jwidths: w.jwidths || null,
+    jstyle: w.jstyle || null,
+    jmerge: w.jmerge || null,
     colWidths: w.colWidths || {}, rowHeights: w.rowHeights || {}, cellFmt: w.cellFmt || {},
     boldCells: w.boldCells instanceof Set ? [...w.boldCells] : (w.boldCells || []),
     italicCells: w.italicCells instanceof Set ? [...w.italicCells] : (w.italicCells || []),
@@ -152,6 +156,10 @@ export async function loadFromCloud() {
             w.boldCells = new Set(w.boldCells || []); w.italicCells = new Set(w.italicCells || []);
             w.colWidths = w.colWidths || {}; w.rowHeights = w.rowHeights || {}; w.cellFmt = w.cellFmt || {};
             w.luckyData = w.luckyData || null;
+            w.jdata = w.jdata || null;
+            w.jwidths = w.jwidths || null;
+            w.jstyle = w.jstyle || null;
+            w.jmerge = w.jmerge || null;
           }
           pendingChanges.add(w.id);
           needsPush = true;
@@ -170,6 +178,10 @@ export async function loadFromCloud() {
         localW.boldCells = new Set(localW.boldCells || []); localW.italicCells = new Set(localW.italicCells || []);
         localW.colWidths = localW.colWidths || {}; localW.rowHeights = localW.rowHeights || {}; localW.cellFmt = localW.cellFmt || {};
         localW.luckyData = localW.luckyData || null;
+        localW.jdata = localW.jdata || null;
+        localW.jwidths = localW.jwidths || null;
+        localW.jstyle = localW.jstyle || null;
+        localW.jmerge = localW.jmerge || null;
       }
       state.widgets[localW.id] = localW;
       state.nextZ = Math.max(state.nextZ, localW.zIndex + 1);
@@ -203,6 +215,10 @@ export function rowToWidget(row) {
     data.rowHeights = data.rowHeights || {};
     data.cellFmt = data.cellFmt || {};
     data.luckyData = data.luckyData || null;
+    data.jdata = data.jdata || null;
+    data.jwidths = data.jwidths || null;
+    data.jstyle = data.jstyle || null;
+    data.jmerge = data.jmerge || null;
   }
   return { ...base, ...data };
 }
