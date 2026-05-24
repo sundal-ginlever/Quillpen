@@ -3,8 +3,9 @@
 // ══════════════════════════════════════════
 import { state, currentUser, currentCanvasId, setCurrentCanvasId } from './state.js';
 import { sb } from './supabase.js';
-import { saveLocal, loadFromCloud, flushToCloud, setSyncState } from './sync.js';
+import { saveLocal, loadFromCloud, flushToCloud, setSyncState, pendingChanges, pendingDeletes } from './sync.js';
 import { sanitize } from './utils.js';
+import { clearUndoHistory } from './undo.js';
 
 export async function fetchCanvases() {
   if (!sb || !currentUser) return [];
@@ -15,6 +16,11 @@ export async function fetchCanvases() {
 export async function createNewCanvas() {
   if (!sb || !currentUser) return;
   const name = prompt('캔버스 이름', '새 캔버스') || '새 캔버스';
+  
+  // 기존 데이터 안전하게 백업 및 동기화 수행
+  saveLocal();
+  await flushToCloud();
+
   const { data } = await sb.from('q_canvases').insert({ user_id: currentUser.id, name }).select().single();
   if (data) {
     clearCanvas();
@@ -39,10 +45,28 @@ export async function switchCanvas(id, name) {
 export function clearCanvas() {
   Object.keys(state.widgets).forEach(id => {
     const el = document.getElementById('w-' + id);
-    if (el) el.remove();
+    if (el) {
+      if (el._cleanupFn) {
+        try {
+          el._cleanupFn();
+        } catch (e) {
+          console.error('Cleanup failed for widget ' + id, e);
+        }
+      }
+      el.remove();
+    }
   });
   state.widgets = {};
+  state.connections = {};
   state.selectedIds = new Set();
+  state.nextZ = 1;
+  if (pendingChanges) {
+    pendingChanges.clear();
+  }
+  if (pendingDeletes) {
+    pendingDeletes.clear();
+  }
+  clearUndoHistory();
 }
 
 export async function openCanvasPicker() {

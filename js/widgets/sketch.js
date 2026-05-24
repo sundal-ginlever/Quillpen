@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════
 // SKETCH WIDGET RENDERER
 // ══════════════════════════════════════════
-import { state, setSketchDrawing } from '../state.js';
+import { state, setSketchDrawing, isReadOnly } from '../state.js';
 import { resizeHandleHTML, attachResizeHandle } from '../utils.js';
 import { updateWidget, deleteWidget } from './core.js';
 import { events } from '../events.js';
@@ -50,7 +50,7 @@ export function renderSketch(w) {
   let curColor = w.strokeColor || '#1e293b', curWidth = w.strokeWidth || 2, tool = 'pen';
 
   let localRedoStack = [];
-  el._cleanupFn = () => { localRedoStack = []; };
+  el._cleanupFn = () => { localRedoStack = []; }; // Temporary, overwritten below
 
   el.innerHTML = `
     <div class="drag-bar" style="height:40px;background:var(--header-bg);border-bottom:1px solid var(--border-dim);display:flex;align-items:center;padding:0 8px;gap:5px;flex-shrink:0;overflow:hidden">
@@ -78,7 +78,9 @@ export function renderSketch(w) {
     b.dataset.color = c;
     b.style.cssText = `width:13px;height:13px;border-radius:50%;background:${c};border:${c === curColor ? '2px solid #6366f1' : '1px solid rgba(0,0,0,0.15)'};padding:0;flex-shrink:0;cursor:pointer`;
     b.onclick = ev => {
-      ev.stopPropagation(); curColor = c; tool = 'pen';
+      ev.stopPropagation(); 
+      if (w.locked || isReadOnly) return;
+      curColor = c; tool = 'pen';
       updateWidget(w.id, { strokeColor: c });
       sc.querySelectorAll('button').forEach(x => x.style.border = (x.dataset.color === curColor && tool === 'pen') ? '2px solid #6366f1' : '1px solid rgba(0,0,0,0.15)');
     };
@@ -91,7 +93,9 @@ export function renderSketch(w) {
     b.style.cssText = `width:20px;height:20px;border-radius:4px;border:${ww === curWidth ? '2px solid #6366f1' : '1px solid rgba(0,0,0,0.1)'};background:white;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer`;
     b.innerHTML = `<div style="width:${ww * 2}px;height:${ww * 2}px;border-radius:50%;background:#1e293b"></div>`;
     b.onclick = ev => {
-      ev.stopPropagation(); curWidth = ww;
+      ev.stopPropagation(); 
+      if (w.locked || isReadOnly) return;
+      curWidth = ww;
       wb.querySelectorAll('button').forEach(x => x.style.border = (x.dataset.w == ww ? '2px solid #6366f1' : '1px solid rgba(0,0,0,0.1)'));
     };
     wb.appendChild(b);
@@ -104,12 +108,23 @@ export function renderSketch(w) {
     (state.widgets[w.id]?.strokes || []).forEach(stroke => {
       if (stroke.points.length < 1) return;
       ctx.beginPath();
-      ctx.strokeStyle = stroke.color;
+      const isEraser = stroke.color === 'transparent';
+      ctx.globalCompositeOperation = isEraser ? 'destination-out' : 'source-over';
+      ctx.strokeStyle = isEraser ? 'rgba(0,0,0,1)' : stroke.color;
       ctx.lineWidth = stroke.width;
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       if (stroke.points.length === 1) {
-        ctx.arc(stroke.points[0].x, stroke.points[0].y, stroke.width / 2, 0, Math.PI * 2);
-        ctx.fill(); return;
+        if (isEraser) {
+          ctx.fillStyle = 'rgba(0,0,0,1)';
+          ctx.arc(stroke.points[0].x, stroke.points[0].y, stroke.width / 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = stroke.color;
+          ctx.arc(stroke.points[0].x, stroke.points[0].y, stroke.width / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalCompositeOperation = 'source-over';
+        return;
       }
       ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
       for (let i = 1; i < stroke.points.length; i++) {
@@ -117,8 +132,10 @@ export function renderSketch(w) {
         ctx.quadraticCurveTo(p1.x, p1.y, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
       }
       ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
     });
   }
+
 
   function resizeCvs() {
     ctx.canvas.width = el.clientWidth;
@@ -126,11 +143,11 @@ export function renderSketch(w) {
     redraw();
   }
 
-  ub.onclick = e => { e.stopPropagation(); const wd = state.widgets[w.id]; if (wd?.strokes.length) { localRedoStack.push(wd.strokes.pop()); redraw(); events.emit('app:save'); } };
-  rb.onclick = e => { e.stopPropagation(); const wd = state.widgets[w.id]; if (localRedoStack.length) { wd.strokes.push(localRedoStack.pop()); redraw(); events.emit('app:save'); } };
-  eb.onclick = e => { e.stopPropagation(); tool = tool === 'eraser' ? 'pen' : 'eraser'; eb.style.border = tool === 'eraser' ? '2px solid #6366f1' : '1px solid rgba(0,0,0,.1)'; eb.style.background = tool === 'eraser' ? '#eef2ff' : 'white'; cvs.style.cursor = tool === 'eraser' ? 'cell' : 'crosshair'; };
-  cb.onclick = e => { e.stopPropagation(); if (confirm('전체 내용을 지우시겠습니까?')) { updateWidget(w.id, { strokes: [] }); redraw(); events.emit('app:save'); } };
-  el.querySelector('.del-btn').onpointerdown = e => { e.stopPropagation(); deleteWidget(w.id); };
+  ub.onclick = e => { e.stopPropagation(); if (w.locked || isReadOnly) return; const wd = state.widgets[w.id]; if (wd?.strokes.length) { localRedoStack.push(wd.strokes.pop()); updateWidget(w.id, { strokes: wd.strokes }); redraw(); events.emit('app:save'); } };
+  rb.onclick = e => { e.stopPropagation(); if (w.locked || isReadOnly) return; const wd = state.widgets[w.id]; if (localRedoStack.length) { wd.strokes.push(localRedoStack.pop()); updateWidget(w.id, { strokes: wd.strokes }); redraw(); events.emit('app:save'); } };
+  eb.onclick = e => { e.stopPropagation(); if (w.locked || isReadOnly) return; tool = tool === 'eraser' ? 'pen' : 'eraser'; eb.style.border = tool === 'eraser' ? '2px solid #6366f1' : '1px solid rgba(0,0,0,.1)'; eb.style.background = tool === 'eraser' ? '#eef2ff' : 'white'; cvs.style.cursor = tool === 'eraser' ? 'cell' : 'crosshair'; };
+  cb.onclick = e => { e.stopPropagation(); if (w.locked || isReadOnly) return; if (confirm('전체 내용을 지우시겠습니까?')) { updateWidget(w.id, { strokes: [] }); redraw(); events.emit('app:save'); } };
+  el.querySelector('.del-btn').onpointerdown = e => { e.stopPropagation(); if (isReadOnly) return; if (window._appModules?.snapshotForUndo) window._appModules.snapshotForUndo(); deleteWidget(w.id); };
 
   let drawing = false, curPts = [], lastPt = null, lastTime = 0;
 
@@ -139,7 +156,13 @@ export function renderSketch(w) {
   cvs.addEventListener('touchend', e => { e.stopPropagation(); }, { passive: false });
 
   cvs.onpointerdown = e => {
-    e.stopPropagation(); e.preventDefault(); drawing = true; setSketchDrawing(true); curPts = [];
+    e.stopPropagation(); e.preventDefault(); 
+    if (isReadOnly) return;
+    if (w.locked) {
+      if (window._appModules?.showUndoToast) window._appModules.showUndoToast('잠긴 위젯입니다. (Ctrl+L로 해제)');
+      return;
+    }
+    drawing = true; setSketchDrawing(true); curPts = [];
     const r = cvs.getBoundingClientRect();
     const pt = { x: e.clientX - r.left, y: e.clientY - r.top };
     curPts.push(pt); lastPt = pt; lastTime = Date.now();
@@ -175,6 +198,7 @@ export function renderSketch(w) {
       if (wd) {
         const simplified = simplifyPoints(curPts, 0.5);
         wd.strokes.push({ points: simplified, color: tool === 'eraser' ? 'transparent' : curColor, width: curWidth });
+        updateWidget(w.id, { strokes: wd.strokes });
       }
       events.emit('app:save');
       redraw();
@@ -182,7 +206,14 @@ export function renderSketch(w) {
   };
 
   setTimeout(resizeCvs, 0);
-  new ResizeObserver(resizeCvs).observe(el);
+  const ro = new ResizeObserver(resizeCvs);
+  ro.observe(el);
+  
+  el._cleanupFn = () => { 
+    localRedoStack = []; 
+    ro.disconnect();
+  };
+  
   attachResizeHandle(el, w.id, 200, 120);
   return el;
 }

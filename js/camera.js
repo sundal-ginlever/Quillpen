@@ -83,7 +83,9 @@ export function zoomToRect(rect, padding = 100) {
   if (!rect) return;
   const vw = window.innerWidth, vh = window.innerHeight;
   const aw = vw - padding * 2, ah = vh - padding * 2;
-  let nz = Math.min(aw / rect.w, ah / rect.h);
+  const safeW = Math.max(rect.w, 1);
+  const safeH = Math.max(rect.h, 1);
+  let nz = Math.min(aw / safeW, ah / safeH);
   nz = Math.max(MIN_ZOOM, Math.min(2.0, nz));
   const cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
   targetCamera.zoom = nz;

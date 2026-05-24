@@ -8,10 +8,16 @@ import { applyCamera } from './camera.js';
 import { events } from './events.js';
 import { nanoid } from './utils.js';
 import { setSelected } from './widgets/core.js';
+import { pendingChanges, pendingDeletes, markCanvasMetaDirty } from './sync.js';
 
 const undoStack = [];
 const redoStack = [];
 export let undoBlocked = false;
+
+export function clearUndoHistory() {
+  undoStack.length = 0;
+  redoStack.length = 0;
+}
 
 function cloneWidget(w) {
   const c = { ...w };
@@ -22,10 +28,38 @@ function cloneWidget(w) {
     if (c.cellFmt) c.cellFmt = { ...c.cellFmt };
     if (c.boldCells) c.boldCells = new Set(c.boldCells);
     if (c.italicCells) c.italicCells = new Set(c.italicCells);
+    if (c.luckyData) c.luckyData = JSON.parse(JSON.stringify(c.luckyData));
+    if (c.jdata) c.jdata = JSON.parse(JSON.stringify(c.jdata));
+    if (c.jwidths) c.jwidths = JSON.parse(JSON.stringify(c.jwidths));
+    if (c.jstyle) c.jstyle = JSON.parse(JSON.stringify(c.jstyle));
+    if (c.jmerge) c.jmerge = JSON.parse(JSON.stringify(c.jmerge));
   } else if (w.type === 'sketch') {
     if (c.strokes) c.strokes = c.strokes.map(s => ({ color: s.color, width: s.width, points: [...s.points] }));
   }
   return c;
+}
+
+function widgetsDiffer(w1, w2) {
+  if (!w1 || !w2) return true;
+  if (w1.x !== w2.x || w1.y !== w2.y || w1.w !== w2.w || w1.h !== w2.h || w1.zIndex !== w2.zIndex || w1.locked !== w2.locked) return true;
+  if (w1.type !== w2.type) return true;
+  
+  if (w1.type === 'memo') {
+    return w1.content !== w2.content || w1.title !== w2.title || w1.color !== w2.color || w1.fontSize !== w2.fontSize;
+  }
+  if (w1.type === 'image') {
+    return w1.src !== w2.src || w1.alt !== w2.alt || w1.objectFit !== w2.objectFit;
+  }
+  if (w1.type === 'sketch') {
+    return JSON.stringify(w1.strokes || []) !== JSON.stringify(w2.strokes || []);
+  }
+  if (w1.type === 'spreadsheet') {
+    return JSON.stringify(w1.jdata || []) !== JSON.stringify(w2.jdata || []) ||
+           JSON.stringify(w1.jwidths || {}) !== JSON.stringify(w2.jwidths || {}) ||
+           JSON.stringify(w1.jstyle || {}) !== JSON.stringify(w2.jstyle || {}) ||
+           JSON.stringify(w1.jmerge || {}) !== JSON.stringify(w2.jmerge || {});
+  }
+  return false;
 }
 
 export function snapshotForUndo() {
@@ -38,16 +72,54 @@ export function snapshotForUndo() {
 }
 
 function applySnapshot(snap) {
-  Object.keys(state.widgets).forEach(id => { const el = document.getElementById('w-' + id); if (el) el.remove(); });
+  const oldWidgets = { ...state.widgets };
+  const oldIds = Object.keys(oldWidgets);
+  const deletedIds = oldIds.filter(id => !snap.widgets[id]);
+
+  const connectionsChanged = JSON.stringify(snap.connections || {}) !== JSON.stringify(state.connections || {});
+  const cameraChanged = snap.camera && (
+    snap.camera.x !== camera.x ||
+    snap.camera.y !== camera.y ||
+    snap.camera.zoom !== camera.zoom
+  );
+
+  if (connectionsChanged || cameraChanged) {
+    markCanvasMetaDirty();
+  }
+
+  Object.keys(state.widgets).forEach(id => { 
+    const el = document.getElementById('w-' + id); 
+    if (el) {
+      if (el._cleanupFn) {
+        try { el._cleanupFn(); } catch(e) {}
+      }
+      el.remove(); 
+    }
+  });
   state.widgets = {};
   state.selectedIds = new Set();
   state.connections = snap.connections || {};
+
   for (const id in snap.widgets) {
     const w = cloneWidget(snap.widgets[id]);
     state.widgets[w.id] = w;
     state.nextZ = Math.max(state.nextZ, (w.zIndex || 0) + 1);
+    
+    const oldW = oldWidgets[w.id];
+    if (widgetsDiffer(oldW, w)) {
+      pendingChanges.add(w.id);
+      pendingDeletes.delete(w.id);
+      markCanvasMetaDirty();
+    }
     events.emit('widget:render', w);
   }
+
+  deletedIds.forEach(id => {
+    pendingDeletes.add(id);
+    pendingChanges.delete(id);
+    markCanvasMetaDirty();
+  });
+
   if (snap.camera) { camera.x = snap.camera.x; camera.y = snap.camera.y; camera.zoom = snap.camera.zoom; applyCamera(); }
   renderConnections();
 }
@@ -61,6 +133,7 @@ export function undo() {
   applySnapshot(undoStack.pop());
   undoBlocked = false;
   events.emit('app:save-local');
+  events.emit('app:schedule-push');
   showUndoToast('실행 취소');
 }
 
@@ -73,6 +146,7 @@ export function redo() {
   applySnapshot(redoStack.pop());
   undoBlocked = false;
   events.emit('app:save-local');
+  events.emit('app:schedule-push');
   showUndoToast('다시 실행');
 }
 
@@ -87,6 +161,7 @@ export function showUndoToast(msg) {
 
 export function duplicateSelected() {
   if (!state.selectedIds.size) return;
+  snapshotForUndo();
   const newIds = [];
   state.selectedIds.forEach(id => {
     const w = state.widgets[id]; if (!w) return;
@@ -94,6 +169,7 @@ export function duplicateSelected() {
     copy.id = nanoid(); copy.x += 24; copy.y += 24; copy.zIndex = state.nextZ++; copy.locked = false;
     if (copy.type === 'spreadsheet') { copy.boldCells = new Set(copy.boldCells || []); copy.italicCells = new Set(copy.italicCells || []); }
     state.widgets[copy.id] = copy;
+    events.emit('pending:add', copy.id);
     events.emit('widget:render', copy);
     newIds.push(copy.id);
   });
@@ -105,6 +181,7 @@ export function duplicateSelected() {
 
 export function toggleLock() {
   if (!state.selectedIds.size) return;
+  snapshotForUndo();
   const allLocked = [...state.selectedIds].every(id => state.widgets[id]?.locked);
   state.selectedIds.forEach(id => {
     events.emit('widget:update', id, { locked: !allLocked });

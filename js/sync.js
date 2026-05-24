@@ -13,6 +13,45 @@ const storage = {
   removeItem: (key) => localStorage.removeItem(key)
 };
 
+// Dynamic storage key helpers
+function getLiveKey() {
+  return currentCanvasId ? `qp_local_live_${currentCanvasId}` : LOCAL_KEY_LIVE;
+}
+function getSyncedKey() {
+  return currentCanvasId ? `qp_local_synced_${currentCanvasId}` : LOCAL_KEY_SYNCED;
+}
+function getBackupKey() {
+  return currentCanvasId ? `qp_local_backup_${currentCanvasId}` : LOCAL_KEY_BACKUP;
+}
+
+function migrateLiveKeyToDynamic() {
+  if (!currentCanvasId) return;
+  const oldLive = storage.getItem(LOCAL_KEY_LIVE);
+  if (oldLive) {
+    const dynamicKey = getLiveKey();
+    if (!storage.getItem(dynamicKey)) {
+      storage.setItem(dynamicKey, oldLive);
+    }
+    storage.removeItem(LOCAL_KEY_LIVE);
+  }
+  const oldSynced = storage.getItem(LOCAL_KEY_SYNCED);
+  if (oldSynced) {
+    const dynamicKey = getSyncedKey();
+    if (!storage.getItem(dynamicKey)) {
+      storage.setItem(dynamicKey, oldSynced);
+    }
+    storage.removeItem(LOCAL_KEY_SYNCED);
+  }
+  const oldBackup = storage.getItem(LOCAL_KEY_BACKUP);
+  if (oldBackup) {
+    const dynamicKey = getBackupKey();
+    if (!storage.getItem(dynamicKey)) {
+      storage.setItem(dynamicKey, oldBackup);
+    }
+    storage.removeItem(LOCAL_KEY_BACKUP);
+  }
+}
+
 // Sync on Tab Close / Visibility Change
 window.addEventListener('beforeunload', () => {
   saveLocal(); // Ensure local storage is always up to date
@@ -24,7 +63,17 @@ window.addEventListener('visibilitychange', () => {
 export let syncTimer = null;
 export let realtimeSub = null;
 export let isSyncing = false;
+export let syncQueued = false;
 export let pendingChanges = new Set();
+export let pendingDeletes = new Set();
+export let pendingCanvasMeta = false;
+
+export function markCanvasMetaDirty() {
+  if (!currentUser || !sb || !currentCanvasId || currentCanvasId === 'local') return;
+  pendingCanvasMeta = true;
+  setSyncState('pending', '동기화 필요');
+}
+
 
 export function setSyncState(state_name, label) {
   const dot = document.getElementById('sync-dot');
@@ -41,8 +90,11 @@ export function schedulePush() {
 
 export async function flushToCloud() {
   if (!sb || !currentUser || !currentCanvasId || currentCanvasId === 'local') return;
-  if (isSyncing) return;
-  if (pendingChanges.size === 0) {
+  if (isSyncing) {
+    syncQueued = true;
+    return;
+  }
+  if (pendingChanges.size === 0 && pendingDeletes.size === 0 && !pendingCanvasMeta) {
     setSyncState('synced', '서버와 일치');
     return;
   }
@@ -50,8 +102,17 @@ export async function flushToCloud() {
   isSyncing = true;
   setSyncState('syncing', '서버 저장 중...');
   const idsToPush = Array.from(pendingChanges);
+  const idsToDelete = Array.from(pendingDeletes);
 
   try {
+    // 1. Bulk offline delete sync
+    if (idsToDelete.length > 0) {
+      const { error: delError } = await sb.from('q_widgets').delete().in('id', idsToDelete);
+      if (delError) throw delError;
+      idsToDelete.forEach(id => pendingDeletes.delete(id));
+    }
+
+    // 2. Bulk updates sync
     const rows = [];
     idsToPush.forEach(id => {
       const w = state.widgets[id];
@@ -73,22 +134,35 @@ export async function flushToCloud() {
     // Success: Clear those specific IDs from pending
     idsToPush.forEach(id => pendingChanges.delete(id));
 
+
+    // 1. Fetch current remote connections to prevent LWW loss
+    const { data: canvasMeta } = await sb.from('q_canvases').select('settings').eq('id', currentCanvasId).single();
+    let mergedConnections = state.connections;
+    if (canvasMeta && canvasMeta.settings && canvasMeta.settings.connections) {
+      // Merge: remote connections + local connections
+      // Local changes take precedence if keys collide
+      mergedConnections = { ...canvasMeta.settings.connections, ...state.connections };
+    }
+
     await sb.from('q_canvases').update({
       camera: { x: camera.x, y: camera.y, zoom: camera.zoom },
-      settings: { showGrid: state.showGrid, snapOn: state.snapOn, connections: state.connections },
+      settings: { showGrid: state.showGrid, snapOn: state.snapOn, connections: mergedConnections },
       updated_at: new Date().toISOString(),
     }).eq('id', currentCanvasId);
 
+    pendingCanvasMeta = false;
     setSyncState('synced', '저장 완료');
+    saveLocal();
+
     
     // Update synced slot
-    const liveStr = storage.getItem(LOCAL_KEY_LIVE);
+    const liveStr = storage.getItem(getLiveKey());
     if (liveStr) {
       try {
         const live = JSON.parse(liveStr);
         if (live.widgets) {
-          storage.setItem(LOCAL_KEY_SYNCED, JSON.stringify({ hash: getHash(live.widgets), timestamp: Date.now() }));
-          storage.removeItem(LOCAL_KEY_BACKUP);
+          storage.setItem(getSyncedKey(), JSON.stringify({ hash: getHash(live.widgets), timestamp: Date.now() }));
+          storage.removeItem(getBackupKey());
         }
       } catch(e) {}
     }
@@ -101,14 +175,22 @@ export async function flushToCloud() {
     setSyncState('error', '저장 실패');
   } finally { 
     isSyncing = false; 
+    if (syncQueued) {
+      syncQueued = false;
+      setTimeout(flushToCloud, 100);
+    }
   }
 }
 
 function widgetData(w) {
-  if (w.type === 'memo') return { content: w.content, title: w.title || '', color: w.color, fontSize: w.fontSize };
-  if (w.type === 'sketch') return { strokes: w.strokes, strokeColor: w.strokeColor, strokeWidth: w.strokeWidth };
-  if (w.type === 'image') return { src: w.src, alt: w.alt, objectFit: w.objectFit };
+  const baseData = {};
+  if (w.locked !== undefined) baseData.locked = w.locked;
+
+  if (w.type === 'memo') return { ...baseData, content: w.content, title: w.title || '', color: w.color, fontSize: w.fontSize };
+  if (w.type === 'sketch') return { ...baseData, strokes: w.strokes, strokeColor: w.strokeColor, strokeWidth: w.strokeWidth };
+  if (w.type === 'image') return { ...baseData, src: w.src, alt: w.alt, objectFit: w.objectFit };
   if (w.type === 'spreadsheet') return {
+    ...baseData,
     rows: w.rows, cols: w.cols, cells: w.cells,
     luckyData: w.luckyData || null,
     jdata: w.jdata || null,
@@ -119,18 +201,25 @@ function widgetData(w) {
     boldCells: w.boldCells instanceof Set ? [...w.boldCells] : (w.boldCells || []),
     italicCells: w.italicCells instanceof Set ? [...w.italicCells] : (w.italicCells || []),
   };
-  return {};
+  return baseData;
 }
 
 export async function loadFromCloud() {
   if (!sb || !currentUser || !currentCanvasId || currentCanvasId === 'local') { loadLocal(); return; }
+  migrateLiveKeyToDynamic();
   setSyncState('syncing', '불러오는 중...');
   try {
     // Read local storage to merge offline changes
     let localWidgets = {};
     try {
-      const d = JSON.parse(storage.getItem(LOCAL_KEY_LIVE) || 'null');
-      if (d && d.widgets) localWidgets = d.widgets;
+      const d = JSON.parse(storage.getItem(getLiveKey()) || 'null');
+      if (d) {
+        if (d.widgets) localWidgets = d.widgets;
+        if (d.pendingDeletes) {
+          pendingDeletes.clear();
+          d.pendingDeletes.forEach(id => pendingDeletes.add(id));
+        }
+      }
     } catch(e) {}
 
     const { data: canvasMeta } = await sb.from('q_canvases').select('*').eq('id', currentCanvasId).single();
@@ -145,6 +234,10 @@ export async function loadFromCloud() {
     let needsPush = false;
     if (widgets) {
       widgets.forEach(row => {
+        if (pendingDeletes.has(row.id)) {
+          needsPush = true;
+          return;
+        }
         const cloudW = rowToWidget(row);
         const localW = localWidgets[cloudW.id];
         let w = cloudW;
@@ -223,11 +316,18 @@ export function rowToWidget(row) {
   return { ...base, ...data };
 }
 
-function subscribeRealtime() {
+export function subscribeRealtime() {
   if (realtimeSub) { sb.removeChannel(realtimeSub); realtimeSub = null; }
   if (!sb || !currentCanvasId || currentCanvasId === 'local') return;
   realtimeSub = sb.channel('canvas-' + currentCanvasId)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'q_widgets', filter: `canvas_id=eq.${currentCanvasId}` }, payload => handleRealtimeChange(payload))
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'q_canvases', filter: `id=eq.${currentCanvasId}` }, payload => {
+      const newCanvas = payload.new;
+      if (newCanvas && newCanvas.settings && newCanvas.settings.connections) {
+        state.connections = { ...state.connections, ...newCanvas.settings.connections };
+        events.emit('connections:render');
+      }
+    })
     .on('presence', { event: 'sync' }, () => {
       const state = realtimeSub.presenceState();
       const users = Object.values(state).flat();
@@ -249,7 +349,7 @@ function handleRealtimeChange(payload) {
     const id = oldRow.id;
     if (state.widgets[id]) {
       const el = document.getElementById('w-' + id);
-      if (el) el.remove();
+      if (el) { if (el._cleanupFn) try{el._cleanupFn();}catch(e){} el.remove(); }
       delete state.widgets[id];
       events.emit('connections:render');
       if (state.minimapVisible) events.emit('minimap:update');
@@ -258,6 +358,71 @@ function handleRealtimeChange(payload) {
     const w = rowToWidget(newRow);
     const existing = state.widgets[w.id];
     
+    // 3번 이슈: 스프레드시트 델타 병합 (LWW 덮어쓰기 충돌 완전 예방)
+    if (existing && w.type === 'spreadsheet') {
+      const localDelta = existing._localDelta || {};
+      const remoteJdata = w.jdata || [];
+      const mergedJdata = JSON.parse(JSON.stringify(remoteJdata));
+      
+      // 로컬 변경 셀들(Delta)을 리모트 데이터 위에 안전하게 오버레이
+      let hasMerged = false;
+      for (const key in localDelta) {
+        const [r, c] = key.split(',').map(Number);
+        while (mergedJdata.length <= r) mergedJdata.push([]);
+        while (mergedJdata[r].length <= c) mergedJdata[r].push('');
+        mergedJdata[r][c] = localDelta[key];
+        hasMerged = true;
+      }
+      
+      existing.jdata = mergedJdata;
+      existing._baseJdata = JSON.parse(JSON.stringify(remoteJdata));
+      existing.jwidths = w.jwidths || existing.jwidths;
+      existing.jstyle = w.jstyle || existing.jstyle;
+      existing.jmerge = w.jmerge || existing.jmerge;
+      existing.updatedAt = Math.max(existing.updatedAt || 0, w.updatedAt || 0);
+
+      if (hasMerged && window._appModules?.showUndoToast) {
+        window._appModules.showUndoToast('스프레드시트가 동시 편집 중입니다! 셀 단위로 병합되었습니다.');
+      }
+
+      const el = document.getElementById('w-' + w.id);
+      if (el) {
+        // 2번 이슈: 현재 로컬 사용자가 셀 수정 중이면 리렌더링을 지연시킵니다 (포커스 유지)
+        if (existing._isEditing || el.contains(document.activeElement)) {
+          existing._applyPendingRemoteUpdate = () => {
+            const freshEl = document.getElementById('w-' + w.id);
+            if (freshEl) { if (freshEl._cleanupFn) try{freshEl._cleanupFn();}catch(e){} freshEl.remove(); }
+            events.emit('widget:render', existing);
+          };
+        } else {
+          if (el._cleanupFn) try{el._cleanupFn();}catch(e){}
+          el.remove();
+          events.emit('widget:render', existing);
+        }
+      }
+      events.emit('connections:render');
+      if (state.minimapVisible) events.emit('minimap:update');
+      return;
+    }
+
+    // 2번 이슈: 포커스 탈취 방지 (로컬 사용자가 활발히 편집 중인 메모 등을 보호)
+    const el = document.getElementById('w-' + w.id);
+    const activeEl = document.activeElement;
+    const isEditingThis = el && (el === activeEl || el.contains(activeEl) || (existing && existing._isEditing));
+
+    if (isEditingThis) {
+      if (w.type === 'memo') {
+        if (existing) {
+          existing.color = w.color;
+          el.style.background = w.color || '#fefce8';
+          const titleInput = el.querySelector('.memo-title-input');
+          if (titleInput && titleInput !== activeEl) titleInput.value = w.title || '';
+        }
+        pendingChanges.add(w.id);
+        return;
+      }
+    }
+
     // CONCURRENCY RULE:
     // 1. If we have pending local changes for this widget, ignore remote update to avoid "revert flickering".
     // 2. If remote updatedAt is newer than local, update.
@@ -271,19 +436,22 @@ function handleRealtimeChange(payload) {
         el.style.left = w.x + 'px'; el.style.top = w.y + 'px';
         el.style.width = w.w + 'px'; el.style.height = w.h + 'px';
         el.style.zIndex = w.zIndex;
+        el.classList.toggle('locked', !!w.locked);
         if (w.type === 'memo') {
           const ta = el.querySelector('textarea');
           if (ta && document.activeElement !== ta) ta.value = w.content || '';
           const titleInput = el.querySelector('.memo-title-input');
           if (titleInput && document.activeElement !== titleInput) titleInput.value = w.title || '';
           el.style.background = w.color || '#fefce8';
+          el.style.fontSize = (w.fontSize || 14) + 'px';
         }
-        if (w.type === 'spreadsheet') { el.remove(); events.emit('widget:render', w); }
+        if (w.type === 'spreadsheet') { if (el._cleanupFn) try{el._cleanupFn();}catch(e){} el.remove(); events.emit('widget:render', w); }
         // Sketch update is complex, full re-render for now
-        if (w.type === 'sketch') { el.remove(); events.emit('widget:render', w); }
+        if (w.type === 'sketch') { if (el._cleanupFn) try{el._cleanupFn();}catch(e){} el.remove(); events.emit('widget:render', w); }
         if (w.type === 'image') {
           const img = el.querySelector('img');
           if (img && img.src !== w.src) img.src = w.src;
+          if (img) img.style.objectFit = w.objectFit || 'cover';
         }
       } else {
         events.emit('widget:render', w);
@@ -303,26 +471,50 @@ export function saveLocal() {
         copy.boldCells = w.boldCells instanceof Set ? [...w.boldCells] : (w.boldCells || []);
         copy.italicCells = w.italicCells instanceof Set ? [...w.italicCells] : (w.italicCells || []),
         copy.luckyData = w.luckyData || null;
+        copy.jdata = w.jdata || null;
+        copy.jwidths = w.jwidths || null;
+        copy.jstyle = w.jstyle || null;
+        copy.jmerge = w.jmerge || null;
       }
       plain[w.id] = copy;
     });
-    storage.setItem(LOCAL_KEY_LIVE, JSON.stringify({ widgets: plain, camera: { ...camera }, showGrid: state.showGrid, snapOn: state.snapOn, connections: state.connections }));
-  } catch (e) { console.error('saveLocal failed', e); }
+    storage.setItem(getLiveKey(), JSON.stringify({
+      widgets: plain,
+      camera: { ...camera },
+      showGrid: state.showGrid,
+      snapOn: state.snapOn,
+      connections: state.connections,
+      pendingDeletes: Array.from(pendingDeletes)
+    }));
+  } catch (e) {
+    console.error('saveLocal failed', e);
+    if (window._appModules?.showUndoToast) {
+      window._appModules.showUndoToast('로컬 저장 실패! 용량이 초과되었습니다.');
+    }
+  }
 }
 
 export function loadLocal() {
   try {
-    const d = JSON.parse(storage.getItem(LOCAL_KEY_LIVE) || 'null');
+    const d = JSON.parse(storage.getItem(getLiveKey()) || 'null');
     if (!d) return;
     if (d.camera) { camera.x = d.camera.x; camera.y = d.camera.y; camera.zoom = d.camera.zoom; }
     if (d.showGrid !== undefined) state.showGrid = d.showGrid;
     if (d.snapOn !== undefined) state.snapOn = d.snapOn;
+    if (d.pendingDeletes) {
+      pendingDeletes.clear();
+      d.pendingDeletes.forEach(id => pendingDeletes.add(id));
+    }
     if (d.widgets) {
       Object.values(d.widgets).forEach(w => {
         if (w.type === 'spreadsheet') {
           w.boldCells = new Set(w.boldCells || []); w.italicCells = new Set(w.italicCells || []);
           w.colWidths = w.colWidths || {}; w.rowHeights = w.rowHeights || {}; w.cellFmt = w.cellFmt || {};
           w.luckyData = w.luckyData || null;
+          w.jdata = w.jdata || null;
+          w.jwidths = w.jwidths || null;
+          w.jstyle = w.jstyle || null;
+          w.jmerge = w.jmerge || null;
         }
         state.widgets[w.id] = w;
         state.nextZ = Math.max(state.nextZ, w.zIndex + 1);
@@ -339,7 +531,7 @@ export function loadLocal() {
 export function save() {
   events.emit('undo:snapshot');
   saveLocal();
-  schedulePush(); // Just sets UI to "pending sync"
+  markCanvasMetaDirty();
 }
 
 // ── VERSIONING UTILS ──
@@ -352,17 +544,18 @@ function getHash(data) {
 }
 
 export async function checkLocalVersionConflict() {
-  const live = storage.getItem(LOCAL_KEY_LIVE);
+  migrateLiveKeyToDynamic();
+  const live = storage.getItem(getLiveKey());
   if (!live) { migrateOldData(); return; }
   
-  const synced = JSON.parse(storage.getItem(LOCAL_KEY_SYNCED) || 'null');
+  const synced = JSON.parse(storage.getItem(getSyncedKey()) || 'null');
   if (!synced) return;
 
   const liveObj = JSON.parse(live);
   const liveHash = getHash(liveObj.widgets || {});
   if (liveHash !== synced.hash) {
     // Conflict! Live data has changed since last cloud sync
-    storage.setItem(LOCAL_KEY_BACKUP, live);
+    storage.setItem(getBackupKey(), live);
     const alert = document.getElementById('local-version-alert');
     if (alert) alert.style.display = 'block';
   }
@@ -371,13 +564,13 @@ export async function checkLocalVersionConflict() {
 function migrateOldData() {
   const old = storage.getItem(OLD_LOCAL_KEY);
   if (old) {
-    storage.setItem(LOCAL_KEY_LIVE, old);
+    storage.setItem(getLiveKey(), old);
     storage.removeItem(OLD_LOCAL_KEY);
   }
 }
 
 export function restoreFromBackup() {
-  const backupStr = storage.getItem(LOCAL_KEY_BACKUP);
+  const backupStr = storage.getItem(getBackupKey());
   if (!backupStr) return;
   try {
     const backup = JSON.parse(backupStr);
@@ -393,7 +586,7 @@ export function restoreFromBackup() {
         }
         state.widgets[w.id] = w;
         const el = document.getElementById('w-' + w.id);
-        if (el) el.remove();
+        if (el) { if (el._cleanupFn) try{el._cleanupFn();}catch(e){} el.remove(); }
         events.emit('widget:render', w);
         pendingChanges.add(w.id);
       }
@@ -405,7 +598,7 @@ export function restoreFromBackup() {
 }
 
 export function discardBackup() {
-  storage.removeItem(LOCAL_KEY_BACKUP);
+  storage.removeItem(getBackupKey());
   const alert = document.getElementById('local-version-alert');
   if (alert) alert.style.display = 'none';
 }

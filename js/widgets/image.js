@@ -1,37 +1,56 @@
 // ══════════════════════════════════════════
 // IMAGE WIDGET RENDERER
 // ══════════════════════════════════════════
-import { state } from '../state.js';
-import { resizeHandleHTML, attachResizeHandle } from '../utils.js';
+import { state, isReadOnly } from '../state.js';
+import { resizeHandleHTML, attachResizeHandle, sanitizeSVG } from '../utils.js';
 import { events } from '../events.js';
 import { updateWidget, deleteWidget } from './core.js';
 
-export function processImageFile(file, widgetId, onComplete) {
+import { sb } from '../supabase.js';
+
+export async function processImageFile(file, widgetId, onComplete) {
   if (!file.type.startsWith('image/')) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    let dataUrl = e.target.result;
-    if (file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) {
-      try {
-        const raw = atob(dataUrl.split(',')[1] || '');
-        const doc = new DOMParser().parseFromString(raw, 'image/svg+xml');
-        doc.querySelectorAll('script, foreignObject, iframe, embed, object, link, style').forEach(el => el.remove());
-        doc.querySelectorAll('*').forEach(el => {
-          [...el.attributes].forEach(attr => {
-            if (attr.name.toLowerCase().startsWith('on') || attr.name === 'href' && attr.value.trim().toLowerCase().startsWith('javascript:'))
-              el.removeAttribute(attr.name);
-          });
-        });
-        const clean = new XMLSerializer().serializeToString(doc.documentElement);
-        dataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(clean)));
-      } catch { /* safe via <img> sandbox */ }
-    }
-    updateWidget(widgetId, { src: dataUrl, alt: file.name || 'pasted-image' });
-    if (state.widgets[widgetId]) state.widgets[widgetId].src = dataUrl;
-    if (onComplete) onComplete(dataUrl);
+
+  // Function to save as base64 (fallback)
+  const saveAsBase64 = () => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      let dataUrl = e.target.result;
+      if (file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) {
+        dataUrl = sanitizeSVG(dataUrl);
+      }
+      finish(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const finish = (url) => {
+    updateWidget(widgetId, { src: url, alt: file.name || 'pasted-image' });
+    if (state.widgets[widgetId]) state.widgets[widgetId].src = url;
+    if (onComplete) onComplete(url);
     events.emit('app:save');
   };
-  reader.readAsDataURL(file);
+
+  // Try to upload to Supabase if available
+  if (sb && state.currentCanvasId !== 'local') {
+    try {
+      const ext = file.name.split('.').pop() || 'png';
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${ext}`;
+      const { data, error } = await sb.storage.from('quillpen-images').upload(fileName, file);
+      if (error) {
+        console.error('Image upload failed', error);
+        saveAsBase64();
+      } else {
+        const { data: publicData } = sb.storage.from('quillpen-images').getPublicUrl(fileName);
+        finish(publicData.publicUrl);
+      }
+    } catch (e) {
+      console.error('Image upload exception', e);
+      saveAsBase64();
+    }
+  } else {
+    saveAsBase64();
+  }
 }
 
 export function renderImage(w) {
@@ -70,11 +89,12 @@ export function renderImage(w) {
       const dz = document.createElement('div');
       dz.className = 'img-drop-zone';
       dz.innerHTML = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg><span>클릭하거나 이미지를 드래그하세요</span><span style="font-size:10px;opacity:.6">PNG · JPG · GIF · WebP · SVG</span>`;
-      dz.addEventListener('click', e => { e.stopPropagation(); fileInput.click(); });
-      dz.addEventListener('dragover', e => { e.preventDefault(); e.stopPropagation(); dz.classList.add('drag-over'); });
-      dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+      dz.addEventListener('click', e => { e.stopPropagation(); if (w.locked || isReadOnly) return; fileInput.click(); });
+      dz.addEventListener('dragover', e => { e.preventDefault(); e.stopPropagation(); if (w.locked || isReadOnly) return; dz.classList.add('drag-over'); });
+      dz.addEventListener('dragleave', () => { if (w.locked || isReadOnly) return; dz.classList.remove('drag-over'); });
       dz.addEventListener('drop', e => {
         e.preventDefault(); e.stopPropagation(); dz.classList.remove('drag-over');
+        if (w.locked || isReadOnly) return;
         const file = e.dataTransfer.files[0];
         if (file && file.type.startsWith('image/')) loadFile(file);
       });
@@ -88,29 +108,40 @@ export function renderImage(w) {
   el.appendChild(fileInput);
 
   function loadFile(file) {
+    if (w.locked || isReadOnly) {
+      if (window._appModules?.showUndoToast) window._appModules.showUndoToast('잠긴 위젯은 수정할 수 없습니다 (Ctrl+L)');
+      return;
+    }
     processImageFile(file, w.id, (src) => renderSrc(src));
   }
 
   fitSel.addEventListener('change', e => {
     e.stopPropagation();
+    if (w.locked || isReadOnly) {
+      fitSel.value = w.objectFit || 'contain';
+      if (window._appModules?.showUndoToast) window._appModules.showUndoToast('잠긴 위젯은 수정할 수 없습니다 (Ctrl+L)');
+      return;
+    }
     updateWidget(w.id, { objectFit: fitSel.value });
     const img = content.querySelector('img');
     if (img) img.style.objectFit = fitSel.value;
     events.emit('app:save');
   });
 
-  el.querySelector('.del-btn').addEventListener('pointerdown', e => { e.stopPropagation(); deleteWidget(w.id); });
+  el.querySelector('.del-btn').addEventListener('pointerdown', e => { e.stopPropagation(); if (isReadOnly) return; if (window._appModules?.snapshotForUndo) window._appModules.snapshotForUndo(); deleteWidget(w.id); });
   el.querySelector('.drag-bar').addEventListener('pointerdown', e => e.stopPropagation());
   content.addEventListener('pointerdown', e => e.stopPropagation());
   el.addEventListener('dragover', e => { e.preventDefault(); e.stopPropagation(); });
   el.addEventListener('drop', e => {
     e.preventDefault(); e.stopPropagation();
+    if (w.locked || isReadOnly) return;
     const file = e.dataTransfer.files[0];
     if (file && file.type.startsWith('image/')) loadFile(file);
   });
 
   // Paste handler
   el.addEventListener('paste', e => {
+    if (w.locked || isReadOnly) return;
     const items = (e.clipboardData || e.originalEvent.clipboardData).items;
     for (const item of items) {
       if (item.type.indexOf('image') !== -1) {

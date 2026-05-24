@@ -8,8 +8,9 @@ import { applyCamera, startCameraLoop, screenToWorld, worldToScreen, pan, zoomAt
 import { toggleMinimap, updateMinimap } from './minimap.js';
 import { renderConnections, getAnchorPos, getBezierPath } from './connections.js';
 import { createWidget, renderWidget, updateWidget, deleteWidget, bringToFront, setSelected } from './widgets/core.js';
-import { save, saveLocal, loadLocal, pendingChanges, setSyncState, flushToCloud, loadFromCloud, rowToWidget, restoreFromBackup, discardBackup, checkLocalVersionConflict } from './sync.js';
+import { save, saveLocal, loadLocal, pendingChanges, setSyncState, flushToCloud, loadFromCloud, rowToWidget, restoreFromBackup, discardBackup, checkLocalVersionConflict, schedulePush } from './sync.js';
 import { processImageFile } from './widgets/image.js';
+import { sanitizeSVG } from './utils.js';
 import { initAuth, initAuthUI } from './auth.js';
 import { openCanvasPicker, closeCanvasPicker, createNewCanvas, switchCanvas, clearCanvas, initCanvasPickerEvents } from './canvas-manager.js';
 import { buildToolbar, setTool, updateStatusBar, TOOLS } from './toolbar.js';
@@ -46,6 +47,7 @@ events.on('tool:set', setTool);
 events.on('canvas:clear', clearCanvas);
 events.on('app:start', startCanvas);
 events.on('app:load-local', loadLocal);
+events.on('app:schedule-push', schedulePush);
 
 // ══════════════════════════════════════════
 // MODULE BRIDGE — window._appModules
@@ -103,6 +105,7 @@ window.createWidgetAtCenter = createWidgetAtCenter;
 // HELPER: create widget at center (for mobile FAB)
 // ══════════════════════════════════════════
 function createWidgetAtCenter(type) {
+  if (state.isReadOnly) return;
   const w = window.innerWidth, h = window.innerHeight;
   const wp = screenToWorld(w / 2, h / 2);
   const wgt = createWidget(type, wp.x - 100, wp.y - 100);
@@ -169,6 +172,7 @@ document.addEventListener('dragover', e => {
   e.preventDefault();
 });
 document.addEventListener('drop', e => {
+  if (state.isReadOnly) return;
   if (e.target.closest('[data-widget-id]')) return;
   const file = e.dataTransfer?.files[0];
   if (!file || !file.type.startsWith('image/')) return;
@@ -183,19 +187,7 @@ document.addEventListener('drop', e => {
   reader.onload = ev => {
     let dataUrl = ev.target.result;
     if (file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) {
-      try {
-        const raw = atob(dataUrl.split(',')[1] || '');
-        const doc = new DOMParser().parseFromString(raw, 'image/svg+xml');
-        doc.querySelectorAll('script, foreignObject, iframe, embed, object, link, style').forEach(el => el.remove());
-        doc.querySelectorAll('*').forEach(el => {
-          [...el.attributes].forEach(attr => {
-            if (attr.name.toLowerCase().startsWith('on') || attr.name === 'href' && attr.value.trim().toLowerCase().startsWith('javascript:'))
-              el.removeAttribute(attr.name);
-          });
-        });
-        const clean = new XMLSerializer().serializeToString(doc.documentElement);
-        dataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(clean)));
-      } catch { /* safe */ }
+      dataUrl = sanitizeSVG(dataUrl);
     }
     updateWidget(w.id, { src: dataUrl, alt: file.name });
     state.widgets[w.id].src = dataUrl;
@@ -211,6 +203,7 @@ document.addEventListener('drop', e => {
 
 // Clipboard paste handler
 document.addEventListener('paste', e => {
+  if (state.isReadOnly) return;
   const t = e.target;
   if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
   const items = (e.clipboardData || e.originalEvent.clipboardData).items;

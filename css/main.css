@@ -54,6 +54,7 @@ textarea,input{font-family:inherit}
 .fab-btn { width: 44px; height: 44px; border-radius: 22px; background: var(--surface); color: var(--accent); border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 600; cursor: pointer; }
 .fab-item:hover .fab-btn { background: var(--surface-hover); }
 @media (max-width: 640px) { .mobile-fab { display: flex; } }
+.read-only .mobile-fab { display: none !important; }
 .widget{position:absolute;border-radius:12px;box-shadow:var(--shadow);transition:box-shadow .15s}
 .widget.selected{box-shadow:0 0 0 2px var(--accent),0 0 0 5px var(--accent-bg),0 8px 32px rgba(0,0,0,0.12)!important}
 .resize-handle{position:absolute;bottom:-4px;right:-4px;width:44px;height:44px;cursor:se-resize;display:flex;align-items:flex-end;justify-content:flex-end;padding:8px;z-index:10;}
@@ -394,3 +395,26 @@ textarea,input{font-family:inherit}
 .alert-btn.discard { background: var(--surface-hover); color: var(--app-text-muted); border: 1px solid var(--border-color); }
 .alert-btn.discard:hover { background: var(--border-color); }
 .alert-btn:active { transform: translateY(0); }
+
+/* ── VIEW-ONLY / READ-ONLY OVERLAY & INTERACTION BLOCKING ── */
+body.read-only .del-btn,
+body.read-only .resize-handle,
+body.read-only .color-btn,
+body.read-only .color-picker,
+body.read-only .anchor-point,
+body.read-only .drag-bar button,
+body.read-only .jexcel_container .jexcel_toolbar,
+body.read-only .drag-bar span + div,
+body.read-only .cs,
+body.read-only .wb,
+body.read-only .drag-bar div[style*="width:1px"] {
+  display: none !important;
+}
+
+body.read-only .widget {
+  cursor: default !important;
+}
+
+body.read-only .drag-bar {
+  cursor: default !important;
+}

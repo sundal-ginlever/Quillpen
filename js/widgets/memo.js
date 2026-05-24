@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════
 // MEMO WIDGET RENDERER
 // ══════════════════════════════════════════
-import { state } from '../state.js';
+import { state, isReadOnly } from '../state.js';
 import { resizeHandleHTML, attachResizeHandle } from '../utils.js';
 import { events } from '../events.js';
 import { updateWidget, deleteWidget } from './core.js';
@@ -17,20 +17,22 @@ export function renderMemo(w) {
   COLORS.forEach(c => {
     const btn = document.createElement('button');
     btn.style.cssText = `width:18px;height:18px;border-radius:50%;background:${c};border:1.5px solid rgba(0,0,0,.12);cursor:pointer;padding:0`;
-    btn.addEventListener('click', ev => { ev.stopPropagation(); el.style.background = c; updateWidget(w.id, { color: c }); picker.style.display = 'none'; colorOpen = false; events.emit('app:save'); });
+    btn.addEventListener('click', ev => { ev.stopPropagation(); if (isReadOnly) return; el.style.background = c; updateWidget(w.id, { color: c }); picker.style.display = 'none'; colorOpen = false; events.emit('app:save'); });
     picker.appendChild(btn);
   });
-  el.querySelector('.color-btn').addEventListener('pointerdown', e => { e.stopPropagation(); colorOpen = !colorOpen; picker.style.display = colorOpen ? 'flex' : 'none'; });
-  el.querySelector('.del-btn').addEventListener('pointerdown', e => { e.stopPropagation(); deleteWidget(w.id); });
+  el.querySelector('.color-btn').addEventListener('pointerdown', e => { e.stopPropagation(); if (w.locked || isReadOnly) return; colorOpen = !colorOpen; picker.style.display = colorOpen ? 'flex' : 'none'; });
+  el.querySelector('.del-btn').addEventListener('pointerdown', e => { e.stopPropagation(); if (isReadOnly) return; if (window._appModules?.snapshotForUndo) window._appModules.snapshotForUndo(); deleteWidget(w.id); });
   
   const titleInput = el.querySelector('.memo-title-input');
   titleInput.value = w.title || '';
-  titleInput.addEventListener('input', () => { updateWidget(w.id, { title: titleInput.value }); events.emit('app:save'); });
+  if (w.locked || isReadOnly) titleInput.readOnly = true;
+  titleInput.addEventListener('input', () => { if (w.locked || isReadOnly) { titleInput.value = w.title || ''; return; } updateWidget(w.id, { title: titleInput.value }); events.emit('app:save'); });
   titleInput.addEventListener('pointerdown', e => e.stopPropagation());
 
   const ta = el.querySelector('textarea');
   ta.value = w.content || '';
-  ta.addEventListener('input', () => { updateWidget(w.id, { content: ta.value }); events.emit('app:save'); });
+  if (w.locked || isReadOnly) ta.readOnly = true;
+  ta.addEventListener('input', () => { if (w.locked || isReadOnly) { ta.value = w.content || ''; return; } updateWidget(w.id, { content: ta.value }); events.emit('app:save'); });
   ta.addEventListener('pointerdown', e => e.stopPropagation());
   attachResizeHandle(el, w.id, 160, 80);
   return el;

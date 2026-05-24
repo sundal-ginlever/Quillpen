@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════
 // SPREADSHEET WIDGET (Jspreadsheet CE v4 Engine)
 // ══════════════════════════════════════════
-import { state } from '../state.js';
+import { state, isReadOnly } from '../state.js';
 import { resizeHandleHTML, attachResizeHandle } from '../utils.js';
 import { events } from '../events.js';
 import { deleteWidget } from './core.js';
@@ -62,7 +62,7 @@ export function renderSpreadsheet(w) {
       <span style="font-size:11px;font-weight:600;color:#64748b;font-family:monospace;letter-spacing:0.05em;text-transform:uppercase;">spreadsheet</span>
       <button class="del-btn" style="margin-left:auto;width:20px;height:20px;border-radius:50%;background:#fee2e2;border:none;font-size:12px;color:#ef4444;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;">×</button>
     </div>
-    <div id="lucky-${w.id}" class="jexcel-container-wrapper" style="margin:0;padding:0;position:absolute;width:100%;height:calc(100% - 32px);left:0;top:32px;background:#fff;overflow:auto;">
+    <div id="lucky-${w.id}" class="jexcel-container-wrapper" style="margin:0;padding:0;position:absolute;width:100%;height:calc(100% - 32px);left:0;top:32px;background:#fff;overflow:auto;${w.locked ? 'pointer-events:none;opacity:0.9;' : ''}">
       <div style="display:flex;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:12px;">준비 중...</div>
     </div>
     ${resizeHandleHTML()}
@@ -70,7 +70,7 @@ export function renderSpreadsheet(w) {
 
   const luckyContainerId = `lucky-${w.id}`;
   const delBtn = el.querySelector('.del-btn');
-  delBtn.addEventListener('pointerdown', e => { e.stopPropagation(); deleteWidget(w.id); });
+  delBtn.addEventListener('pointerdown', e => { e.stopPropagation(); if (isReadOnly) return; if (window._appModules?.snapshotForUndo) window._appModules.snapshotForUndo(); deleteWidget(w.id); });
 
   // 2. Jspreadsheet 초기화 (재시도 로직 포함)
   let retryCount = 0;
@@ -108,6 +108,11 @@ export function renderSpreadsheet(w) {
       // 기본 15행 8열 빈 시트
       initialData = Array.from({ length: 15 }, () => Array(8).fill(''));
     }
+
+    // 3번 이슈: 동시 편집 병합을 위한 원본 데이터 백업 복사본 생성
+    if (!w._baseJdata) {
+      w._baseJdata = JSON.parse(JSON.stringify(initialData));
+    }
     
     containerEl.innerHTML = ''; // "준비 중..." 문구 지우기
 
@@ -121,7 +126,35 @@ export function renderSpreadsheet(w) {
         colWidths: w.jwidths || [],
         style: w.jstyle || {},
         mergeCells: w.jmerge || {},
+        stripHTML: true,
+        editable: !isReadOnly,
+        contextMenu: isReadOnly ? false : undefined,
         onevent: function(eventName) {
+          if (isReadOnly) {
+            const attemptEvents = ['onbeforechange', 'onbeforeinsertrow', 'onbeforedeleterow', 'onbeforeinsertcolumn', 'onbeforedeletecolumn', 'oneditionstart', 'onchange'];
+            if (attemptEvents.includes(eventName)) {
+              // Read-only toast if necessary
+            }
+            const dataChangingEvents = ['onchange', 'oninsertrow', 'ondeleterow', 'oninsertcolumn', 'ondeletecolumn', 'onresizecolumn', 'onresizerow', 'onmoverow', 'onmovecolumn', 'onchangeheader', 'onstyle', 'onmerge'];
+            if (dataChangingEvents.includes(eventName)) {
+              setTimeout(() => { if (jinst) jinst.setData(w._baseJdata || w.jdata); }, 10);
+            }
+            return false;
+          }
+
+          if (w.locked) {
+            const attemptEvents = ['onbeforechange', 'onbeforeinsertrow', 'onbeforedeleterow', 'onbeforeinsertcolumn', 'onbeforedeletecolumn', 'oneditionstart', 'onchange'];
+            if (attemptEvents.includes(eventName)) {
+              if (window._appModules?.showUndoToast) window._appModules.showUndoToast('잠긴 위젯입니다. (Ctrl+L로 해제)');
+            }
+            // If it's a data changing event while locked, aggressively revert and cancel
+            const dataChangingEvents = ['onchange', 'oninsertrow', 'ondeleterow', 'oninsertcolumn', 'ondeletecolumn', 'onresizecolumn', 'onresizerow', 'onmoverow', 'onmovecolumn', 'onchangeheader', 'onstyle', 'onmerge'];
+            if (dataChangingEvents.includes(eventName)) {
+              setTimeout(() => { if (jinst) jinst.setData(w._baseJdata || w.jdata); }, 10);
+            }
+            return false;
+          }
+
           const dataChangingEvents = [
             'onchange', 'oninsertrow', 'ondeleterow', 'oninsertcolumn', 'ondeletecolumn',
             'onresizecolumn', 'onresizerow', 'onmoverow', 'onmovecolumn', 'onchangeheader',
@@ -129,6 +162,22 @@ export function renderSpreadsheet(w) {
           ];
           if (dataChangingEvents.includes(eventName)) {
             triggerSave();
+          }
+
+          // 2번 및 3번 이슈: 현재 활성 편집 상태 추적
+          if (eventName === 'oneditionstart') {
+            w._isEditing = true;
+          } else if (eventName === 'oneditionend') {
+            w._isEditing = false;
+            // 편집이 완료되었고 대기 중인 리모트 업데이트가 예약되어 있다면 지연 실행
+            if (w._applyPendingRemoteUpdate) {
+              setTimeout(() => {
+                if (w._applyPendingRemoteUpdate) {
+                  w._applyPendingRemoteUpdate();
+                  delete w._applyPendingRemoteUpdate;
+                }
+              }, 100);
+            }
           }
         }
       });
@@ -139,10 +188,29 @@ export function renderSpreadsheet(w) {
         w._jexcelSaveTimeout = setTimeout(() => {
           if (!document.getElementById('w-' + w.id)) return;
           
-          w.jdata = jinst.getData();
+          const localData = jinst.getData();
+          w.jdata = localData;
           w.jwidths = jinst.getWidth();
           w.jstyle = jinst.getStyle();
           w.jmerge = jinst.getConfig().mergeCells || {};
+          
+          // 로컬 유저가 수정한 셀의 좌표와 값(Delta) 계산
+          const baseData = w._baseJdata || [];
+          const delta = {};
+          const maxR = Math.max(localData.length, baseData.length);
+          for (let r = 0; r < maxR; r++) {
+            const lr = localData[r] || [];
+            const br = baseData[r] || [];
+            const maxC = Math.max(lr.length, br.length);
+            for (let c = 0; c < maxC; c++) {
+              const lv = lr[c] !== undefined ? lr[c] : '';
+              const bv = br[c] !== undefined ? br[c] : '';
+              if (lv !== bv) {
+                delta[`${r},${c}`] = lv;
+              }
+            }
+          }
+          w._localDelta = delta;
           
           w.updatedAt = Date.now();
           events.emit('pending:add', w.id);

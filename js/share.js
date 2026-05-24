@@ -1,10 +1,10 @@
 // ══════════════════════════════════════════
 // SHARE LINK + READ-ONLY MODE
 // ══════════════════════════════════════════
-import { state, currentUser, currentCanvasId, setCurrentCanvasId, setCurrentCanvasName, setIsReadOnly } from './state.js';
+import { state, camera, currentUser, currentCanvasId, setCurrentCanvasId, setCurrentCanvasName, setIsReadOnly } from './state.js';
 import { sb, loadSupabase } from './supabase.js';
 import { events } from './events.js';
-import { rowToWidget } from './sync.js';
+import { rowToWidget, subscribeRealtime } from './sync.js';
 
 export async function checkShareMode() {
   const params = new URLSearchParams(window.location.search);
@@ -26,7 +26,9 @@ export async function checkShareMode() {
     if (canvas.settings) {
       if (canvas.settings.showGrid !== undefined) state.showGrid = canvas.settings.showGrid;
       if (canvas.settings.snapOn !== undefined) state.snapOn = canvas.settings.snapOn;
+      if (canvas.settings.connections) state.connections = canvas.settings.connections;
     }
+    setCurrentCanvasId(canvas.id);
     setCurrentCanvasName(canvas.name || '공유 캔버스');
     const { data: widgets } = await sb.from('q_widgets').select('*').eq('canvas_id', canvas.id).order('z_index');
     if (widgets) {
@@ -39,6 +41,8 @@ export async function checkShareMode() {
     }
     events.emit('app:start');
     events.emit('camera:apply');
+    events.emit('connections:render');
+    subscribeRealtime();
     disableEditing();
     return true;
   } catch (e) { console.error('share load error', e); return false; }
@@ -79,7 +83,7 @@ async function loadShareState() {
 export async function toggleShareEnabled(enabled) {
   if (!sb || !currentCanvasId) return;
   if (enabled) {
-    const token = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    const token = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : (Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
     await sb.from('q_canvases').update({ share_enabled: true, share_token: token }).eq('id', currentCanvasId);
     document.getElementById('share-url-input').value = `${window.location.origin}${window.location.pathname}?share=${token}`;
   } else {

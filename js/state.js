@@ -29,7 +29,10 @@ export let currentCanvasName = '캔버스';
 export function setCurrentCanvasName(n) { currentCanvasName = n; }
 
 export let isReadOnly = false;
-export function setIsReadOnly(v) { isReadOnly = v; }
+export function setIsReadOnly(v) { 
+  isReadOnly = v; 
+  document.body.classList.toggle('read-only', v);
+}
 
 export const camera = { x: 0, y: 0, zoom: 1 };
 export let targetCamera = { x: 0, y: 0, zoom: 1 };

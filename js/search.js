@@ -23,20 +23,29 @@ export function closeSearch() {
   document.getElementById('search-count').textContent = '';
 }
 
+let debounceTimer;
+
 export function runSearch(q) {
-  clearSearchHighlights();
-  searchResults = []; searchIdx = -1;
-  if (!q.trim()) { document.getElementById('search-count').textContent = ''; return; }
-  const lower = q.toLowerCase();
-  Object.values(state.widgets).forEach(w => {
-    let hit = false;
-    if (w.type === 'memo' && (w.content?.toLowerCase().includes(lower) || w.title?.toLowerCase().includes(lower))) hit = true;
-    if (w.type === 'spreadsheet') { Object.values(w.cells || {}).forEach(v => { if (String(v).toLowerCase().includes(lower)) hit = true; }); }
-    if (w.type === 'image' && w.alt?.toLowerCase().includes(lower)) hit = true;
-    if (hit) searchResults.push(w.id);
-  });
-  document.getElementById('search-count').textContent = searchResults.length ? `${searchResults.length}개` : '없음';
-  if (searchResults.length) { searchIdx = 0; jumpToSearch(0); }
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    clearSearchHighlights();
+    searchResults = []; searchIdx = -1;
+    if (!q.trim()) { document.getElementById('search-count').textContent = ''; return; }
+    const lower = q.toLowerCase();
+    Object.values(state.widgets).forEach(w => {
+      let hit = false;
+      if (w.type === 'memo' && (w.content?.toLowerCase().includes(lower) || w.title?.toLowerCase().includes(lower))) hit = true;
+      if (w.type === 'spreadsheet' && w.jdata && Array.isArray(w.jdata)) {
+        w.jdata.forEach(row => {
+          if (Array.isArray(row)) row.forEach(v => { if (v && String(v).toLowerCase().includes(lower)) hit = true; });
+        });
+      }
+      if (w.type === 'image' && w.alt?.toLowerCase().includes(lower)) hit = true;
+      if (hit) searchResults.push(w.id);
+    });
+    document.getElementById('search-count').textContent = searchResults.length ? `${searchResults.length}개` : '없음';
+    if (searchResults.length) { searchIdx = 0; jumpToSearch(0); }
+  }, 200);
 }
 
 export function searchNav(dir) {

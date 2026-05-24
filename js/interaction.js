@@ -30,7 +30,7 @@ function showWidgetContextMenu(cx, cy, wid) {
   ctxMenu = document.createElement('div');
   ctxMenu.style.cssText = `position:fixed;left:${cx}px;top:${cy}px;background:var(--surface);border-radius:12px;box-shadow:var(--shadow-lg);border:1px solid var(--border-color);padding:6px 0;z-index:9999;min-width:140px`;
   const items = [
-    { label: '🗑 삭제', action: () => deleteWidget(wid) },
+    { label: '🗑 삭제', action: () => { snapshotForUndo(); deleteWidget(wid); } },
     { label: '📋 복제', action: () => { setSelected([wid]); duplicateSelected(); } },
     { label: '🔒 잠금 토글', action: () => { setSelected([wid]); toggleLock(); } },
   ];
@@ -80,7 +80,12 @@ function commitSelBox() {
   setSelected(ids); selBox = null;
 }
 
+let _interactionInitialized = false;
+
 export function initInteraction() {
+  if (_interactionInitialized) return;
+  _interactionInitialized = true;
+
   buildMobileFAB();
   rootEl = document.getElementById('root');
   world = document.getElementById('world');
@@ -111,6 +116,7 @@ export function initInteraction() {
   // ── Connection anchor start ──
   let connStart = null;
   world.addEventListener('pointerdown', e => {
+    if (state.isReadOnly) return;
     const a = e.target.closest('.anchor-point');
     if (a) {
       e.preventDefault(); e.stopPropagation();
@@ -126,6 +132,20 @@ export function initInteraction() {
   rootEl.addEventListener('pointerdown', e => {
     if (isUI(e)) return;
     if (e.pointerType === 'touch') return;
+    
+    // 읽기 전용 가드 (화면 이동만 허용하고 그 외 모든 쓰기 동작 원천 봉쇄)
+    if (state.isReadOnly) {
+      const isPanAction = state.activeTool === 'hand' || e.button === 1 || (e.button === 0 && e.altKey);
+      if (isPanAction) {
+        e.preventDefault();
+        const rect = rootEl.getBoundingClientRect();
+        const sp = { x: e.clientX, y: e.clientY };
+        drag = { type: 'pan', last: sp };
+        rootEl.style.cursor = 'grabbing';
+      }
+      return;
+    }
+
     const wEl = getWidgetEl(e), wid = wEl?.dataset.widgetId;
     const rect = rootEl.getBoundingClientRect();
     const sp = { x: e.clientX, y: e.clientY }, wp = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
@@ -155,6 +175,10 @@ export function initInteraction() {
       document.getElementById('ghost-conn').setAttribute('d', getBezierPath(p1, wp, connStart.side, 'auto'));
     } else if (drag.type === 'move') {
       const tdx = (e.clientX - drag.start.x) / camera.zoom, tdy = (e.clientY - drag.start.y) / camera.zoom;
+      if (!drag.moved && (Math.abs(tdx) > 2 || Math.abs(tdy) > 2)) {
+        snapshotForUndo();
+        drag.moved = true;
+      }
       Object.entries(drag.positions).forEach(([id, s]) => {
         if (state.widgets[id]?.locked) return;
         const el2 = document.getElementById('w-' + id);
@@ -224,6 +248,20 @@ export function initInteraction() {
   rootEl.addEventListener('touchstart', e => {
     if (isUI(e)) return;
     if (sketchDrawing) return;
+    if (e.target.closest('.anchor-point')) return;
+    
+    // 읽기 전용 가드 (모바일 화면 이동/확대만 허용하고 그 외 모든 조작 봉쇄)
+    if (state.isReadOnly) {
+      if (e.touches.length === 2) {
+        e.preventDefault(); pinch = { dist: Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY) };
+      } else if (e.touches.length === 1) {
+        const t = e.touches[0];
+        drag = { type: 'pan', last: { x: t.clientX, y: t.clientY } };
+        lastPanPt = { x: t.clientX, y: t.clientY };
+      }
+      return;
+    }
+
     if (e.touches.length === 2) {
       e.preventDefault(); pinch = { dist: Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY) };
       if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
@@ -259,6 +297,10 @@ export function initInteraction() {
       if (drag.type === 'pan') { pan(t.clientX - lastPanPt.x, t.clientY - lastPanPt.y); lastPanPt = { x: t.clientX, y: t.clientY }; }
       else if (drag.type === 'move') {
         const tdx = (t.clientX - drag.start.x) / camera.zoom, tdy = (t.clientY - drag.start.y) / camera.zoom;
+        if (!drag.moved && (Math.abs(tdx) > 2 || Math.abs(tdy) > 2)) {
+          snapshotForUndo();
+          drag.moved = true;
+        }
         Object.entries(drag.positions).forEach(([id, s]) => { 
           if (state.widgets[id]?.locked) return; 
           const el2 = document.getElementById('w-' + id); 
@@ -302,8 +344,8 @@ export function initInteraction() {
           el2.style.left = sn.x + 'px'; el2.style.top = sn.y + 'px'; 
         } 
       });
-      renderConnections(); if (state.minimapVisible) updateMinimap();
-      if (window._appModules?.save) window._appModules.save();
+      events.emit('connections:render'); if (state.minimapVisible) events.emit('minimap:update');
+      events.emit('app:save');
     }
     pinch = null; drag = null; clearSelBoxUI();
   });
@@ -313,6 +355,25 @@ export function initInteraction() {
   // ── Keyboard ──
   window.addEventListener('keydown', e => {
     const t = e.target; if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
+    
+    // 읽기 전용 가드 (뷰어 동작을 위한 최소한의 단축키만 허용)
+    if (state.isReadOnly) {
+      const isCtrlKey = e.ctrlKey || e.metaKey;
+      const allowedCtrlKeys = ['0', '9', '=', '-', 'f', 'F', 'm', 'M'];
+      const allowedSingleKeys = ['Escape', '?', 'h', 'H'];
+      
+      if (isCtrlKey && allowedCtrlKeys.includes(e.key)) {
+        // 허용된 단축키 조합 통과
+      } else if (!isCtrlKey && allowedSingleKeys.includes(e.key)) {
+        // 허용된 단일 단축키 통과
+      } else {
+        // 그 외 모든 생성/수정/삭제/도구 단축키 무조건 차단
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+    }
+
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') { e.preventDefault(); undo(); return; }
     if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) { e.preventDefault(); redo(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === '0') { e.preventDefault(); camera.x = 0; camera.y = 0; camera.zoom = 1; events.emit('camera:apply'); return; }
@@ -321,7 +382,7 @@ export function initInteraction() {
     if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) { e.preventDefault(); zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1.25, true); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === '-') { e.preventDefault(); zoomAt(window.innerWidth / 2, window.innerHeight / 2, 0.8, true); return; }
     if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
-      e.preventDefault(); const d = e.shiftKey ? 10 : 1; const dx = e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0, dy = e.key === 'ArrowUp' ? -d : e.key === 'ArrowDown' ? d : 0; state.selectedIds.forEach(id => { const w = state.widgets[id]; if (w && !w.locked) { w.x += dx; w.y += dy; const el = document.getElementById('w-' + id); if (el) { el.style.left = w.x + 'px'; el.style.top = w.y + 'px'; } } }); events.emit('connections:render'); if (state.minimapVisible) events.emit('minimap:update'); events.emit('app:save'); return;
+      e.preventDefault(); const d = e.shiftKey ? 10 : 1; const dx = e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0, dy = e.key === 'ArrowUp' ? -d : e.key === 'ArrowDown' ? d : 0; state.selectedIds.forEach(id => { const w = state.widgets[id]; if (w && !w.locked) { w.x += dx; w.y += dy; const el = document.getElementById('w-' + id); if (el) { el.style.left = w.x + 'px'; el.style.top = w.y + 'px'; } events.emit('pending:add', id); } }); events.emit('connections:render'); if (state.minimapVisible) events.emit('minimap:update'); events.emit('app:save'); return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key === 'd') { e.preventDefault(); duplicateSelected(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === 'l') { e.preventDefault(); toggleLock(); return; }
@@ -330,7 +391,7 @@ export function initInteraction() {
     if (e.key === '?') { e.preventDefault(); openHelpModal(); return; }
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'S') { e.preventDefault(); openShareModal(); return; }
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'E') { e.preventDefault(); openExportModal(); return; }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && state.selectedIds.size) { e.preventDefault(); [...state.selectedIds].forEach(deleteWidget); return; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && state.selectedIds.size) { e.preventDefault(); snapshotForUndo(); [...state.selectedIds].forEach(deleteWidget); return; }
     if (e.key === 'Escape') { setSelected([]); events.emit('tool:set', 'select'); closeShareModal(); closeExportModal(); closeHelpModal(); closeCanvasPicker(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === 'a') { e.preventDefault(); setSelected(Object.keys(state.widgets)); return; }
     const tm = { 'v': 'select', 'h': 'hand', 'p': 'sketch', 't': 'memo', 's': 'spreadsheet', 'i': 'image', 'c': 'connect', 'e': 'eraser' };

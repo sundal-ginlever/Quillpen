@@ -29,6 +29,10 @@ export function renderConnections() {
   if (!group) return;
   group.innerHTML = '';
   Object.entries(state.connections).forEach(([id, c]) => {
+    if (!state.widgets[c.fromId] || !state.widgets[c.toId]) {
+      delete state.connections[id];
+      return;
+    }
     const p1 = getAnchorPos(c.fromId, c.fromSide);
     const p2 = getAnchorPos(c.toId, c.toSide);
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');

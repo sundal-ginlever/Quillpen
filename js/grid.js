@@ -12,12 +12,25 @@ export function drawGrid() {
   const w = window.innerWidth, h = window.innerHeight;
   gridCanvas.width = w; gridCanvas.height = h;
   gridCtx.clearRect(0, 0, w, h);
-  if (!state.showGrid || camera.zoom < 0.1) return;
+  if (!state.showGrid || camera.zoom < 0.03) return;
+  
   const isDark = state.theme === 'dark';
   const minorColor = isDark ? 'rgba(51,65,85,0.6)' : 'rgba(203,213,225,0.55)';
   const majorColor = isDark ? 'rgba(71,85,105,0.5)' : 'rgba(148,163,184,0.4)';
 
-  const minor = SNAP * camera.zoom, major = SNAP * 5 * camera.zoom;
+  // Scale the grid step based on zoom level to avoid rendering millions of lines
+  let stepMultiplier = 1;
+  if (camera.zoom < 0.15) {
+    stepMultiplier = 10;
+  } else if (camera.zoom < 0.4) {
+    stepMultiplier = 5;
+  } else if (camera.zoom < 0.8) {
+    stepMultiplier = 2;
+  }
+
+  const baseSnap = SNAP * stepMultiplier;
+  const minor = baseSnap * camera.zoom, major = baseSnap * 5 * camera.zoom;
+  
   if (minor >= 8) {
     const ox = ((camera.x % minor) + minor) % minor, oy = ((camera.y % minor) + minor) % minor;
     gridCtx.strokeStyle = minorColor; gridCtx.lineWidth = 0.5; gridCtx.beginPath();

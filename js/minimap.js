@@ -58,6 +58,12 @@ export function updateMinimap() {
   const offX = (cw - worldW * scale) / 2 - minX * scale;
   const offY = (ch - worldH * scale) / 2 - minY * scale;
 
+  // Save for click handler
+  if (!container._minimapState) container._minimapState = {};
+  container._minimapState.offX = offX;
+  container._minimapState.offY = offY;
+  container._minimapState.scale = scale;
+
   ctx.fillStyle = state.theme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)';
   widgets.forEach(w => {
     ctx.fillRect(w.x * scale + offX, w.y * scale + offY, w.w * scale, w.h * scale);
@@ -73,11 +79,12 @@ export function updateMinimap() {
     container.addEventListener('pointerdown', e => {
       const rect = container.getBoundingClientRect();
       const clickX = e.clientX - rect.left, clickY = e.clientY - rect.top;
-      const worldX = (clickX - offX) / scale, worldY = (clickY - offY) / scale;
+      const ms = container._minimapState;
+      const worldX = (clickX - ms.offX) / ms.scale, worldY = (clickY - ms.offY) / ms.scale;
       targetCamera.zoom = camera.zoom;
-      targetCamera.x = vw / 2 - worldX * camera.zoom;
-      targetCamera.y = vh / 2 - worldY * camera.zoom;
-      events.emit('camera:loop');
+      targetCamera.x = window.innerWidth / 2 - worldX * camera.zoom;
+      targetCamera.y = window.innerHeight / 2 - worldY * camera.zoom;
+      if (window._appModules?.startCameraLoop) window._appModules.startCameraLoop();
     });
   }
 }
