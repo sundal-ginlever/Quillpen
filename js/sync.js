@@ -60,6 +60,14 @@ window.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') saveLocal();
 });
 
+// 비동기 Supabase 호출 무한 정체 방지를 위한 타임아웃 래퍼 (기본 8초)
+function withTimeout(promise, ms = 8000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), ms))
+  ]);
+}
+
 export let syncTimer = null;
 export let realtimeSub = null;
 export let isSyncing = false;
@@ -107,7 +115,7 @@ export async function flushToCloud() {
   try {
     // 1. Bulk offline delete sync
     if (idsToDelete.length > 0) {
-      const { error: delError } = await sb.from('q_widgets').delete().in('id', idsToDelete);
+      const { error: delError } = await withTimeout(sb.from('q_widgets').delete().in('id', idsToDelete));
       if (delError) throw delError;
       idsToDelete.forEach(id => pendingDeletes.delete(id));
     }
@@ -127,7 +135,7 @@ export async function flushToCloud() {
     });
 
     if (rows.length > 0) {
-      const { error } = await sb.from('q_widgets').upsert(rows, { onConflict: 'id' });
+      const { error } = await withTimeout(sb.from('q_widgets').upsert(rows, { onConflict: 'id' }));
       if (error) throw error;
     }
     
@@ -136,7 +144,7 @@ export async function flushToCloud() {
 
 
     // 1. Fetch current remote connections to prevent LWW loss
-    const { data: canvasMeta } = await sb.from('q_canvases').select('settings').eq('id', currentCanvasId).single();
+    const { data: canvasMeta } = await withTimeout(sb.from('q_canvases').select('settings').eq('id', currentCanvasId).single());
     let mergedConnections = state.connections;
     if (canvasMeta && canvasMeta.settings && canvasMeta.settings.connections) {
       // Merge: remote connections + local connections
@@ -144,11 +152,11 @@ export async function flushToCloud() {
       mergedConnections = { ...canvasMeta.settings.connections, ...state.connections };
     }
 
-    await sb.from('q_canvases').update({
+    await withTimeout(sb.from('q_canvases').update({
       camera: { x: camera.x, y: camera.y, zoom: camera.zoom },
       settings: { showGrid: state.showGrid, snapOn: state.snapOn, connections: mergedConnections },
       updated_at: new Date().toISOString(),
-    }).eq('id', currentCanvasId);
+    }).eq('id', currentCanvasId));
 
     pendingCanvasMeta = false;
     setSyncState('synced', '저장 완료');
@@ -172,7 +180,7 @@ export async function flushToCloud() {
     }, 2000);
   } catch (err) {
     console.error('Manual sync error', err);
-    setSyncState('error', '저장 실패');
+    setSyncState('error', err.message === 'TIMEOUT' ? '저장 실패 (시간 초과)' : '저장 실패');
   } finally { 
     isSyncing = false; 
     if (syncQueued) {
