@@ -84,6 +84,8 @@ export function renderImage(w) {
       const img = document.createElement('img');
       img.src = src;
       img.style.cssText = `width:100%;height:100%;object-fit:${fitSel.value}`;
+      img.draggable = false;
+      img.addEventListener('dragstart', e => e.preventDefault());
       content.appendChild(img);
     } else {
       const dz = document.createElement('div');
@@ -128,9 +130,10 @@ export function renderImage(w) {
     events.emit('app:save');
   });
 
+  // 선택박스 조작 시 위젯이 끌려다니는 것 차단
+  fitSel.addEventListener('pointerdown', e => e.stopPropagation());
+
   el.querySelector('.del-btn').addEventListener('pointerdown', e => { e.stopPropagation(); if (isReadOnly) return; if (window._appModules?.snapshotForUndo) window._appModules.snapshotForUndo(); deleteWidget(w.id); });
-  el.querySelector('.drag-bar').addEventListener('pointerdown', e => e.stopPropagation());
-  content.addEventListener('pointerdown', e => e.stopPropagation());
   el.addEventListener('dragover', e => { e.preventDefault(); e.stopPropagation(); });
   el.addEventListener('drop', e => {
     e.preventDefault(); e.stopPropagation();
