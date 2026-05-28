@@ -253,7 +253,9 @@ export function initInteraction() {
     // 읽기 전용 가드 (모바일 화면 이동/확대만 허용하고 그 외 모든 조작 봉쇄)
     if (state.isReadOnly) {
       if (e.touches.length === 2) {
-        e.preventDefault(); pinch = { dist: Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY) };
+        e.preventDefault(); 
+        const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        pinch = { dist: dist, startZoom: camera.zoom, lastDist: dist };
       } else if (e.touches.length === 1) {
         const t = e.touches[0];
         drag = { type: 'pan', last: { x: t.clientX, y: t.clientY } };
@@ -263,7 +265,9 @@ export function initInteraction() {
     }
 
     if (e.touches.length === 2) {
-      e.preventDefault(); pinch = { dist: Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY) };
+      e.preventDefault(); 
+      const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      pinch = { dist: dist, startZoom: camera.zoom, lastDist: dist };
       if (touchTimer) { clearTimeout(touchTimer); touchTimer = null; }
     } else if (e.touches.length === 1) {
       const t = e.touches[0], wEl = getWidgetEl(e), wid = wEl?.dataset.widgetId;
@@ -285,13 +289,27 @@ export function initInteraction() {
 
   rootEl.addEventListener('touchmove', e => {
     if (sketchDrawing) return;
+    
+    // 모바일 1핑거 스와이프 조작 시, 메모 textarea나 스프레드시트 컨테이너 내부의 기본 스크롤 동작 허용
+    const t = e.target;
+    const isScrollable = t.closest('textarea') || t.closest('.jexcel-container-wrapper') || t.closest('.jexcel');
+    if (isScrollable && e.touches.length === 1 && drag?.type !== 'move') {
+      return; // preventDefault() 호출하지 않고 스크롤 작동 보장
+    }
+
     e.preventDefault();
     if (touchTimer) { const t = e.touches[0]; if (t && (Math.abs(t.clientX - touchStartX) > 10 || Math.abs(t.clientY - touchStartY) > 10)) { clearTimeout(touchTimer); touchTimer = null; } }
     if (e.touches.length === 2 && pinch) {
       const nd = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      
+      // 지터 필터링: 터치 거리가 미세하게(2px 미만) 변하면 줌 연산을 생략하여 떨림 방지
+      if (Math.abs(nd - pinch.lastDist) < 2) return;
+      
       const rect = rootEl.getBoundingClientRect();
-      zoomAt((e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left, (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top, nd / pinch.dist);
-      pinch.dist = nd;
+      const factor = nd / pinch.lastDist;
+      pinch.lastDist = nd;
+      
+      zoomAt((e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left, (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top, factor);
     } else if (e.touches.length === 1 && drag) {
       const t = e.touches[0], rect = rootEl.getBoundingClientRect();
       if (drag.type === 'pan') { pan(t.clientX - lastPanPt.x, t.clientY - lastPanPt.y); lastPanPt = { x: t.clientX, y: t.clientY }; }
@@ -354,7 +372,14 @@ export function initInteraction() {
 
   // ── Keyboard ──
   window.addEventListener('keydown', e => {
-    const t = e.target; if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
+    const t = e.target;
+    
+    // 스프레드시트 위젯 내부(jspreadsheet)에서의 키 조작은 전역 단축키에서 안전하게 제외 (Esc 키 제외)
+    if (t.closest('.jexcel-container-wrapper') || t.closest('.jexcel')) {
+      if (e.key !== 'Escape') return;
+    }
+
+    if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
     
     // 읽기 전용 가드 (뷰어 동작을 위한 최소한의 단축키만 허용)
     if (state.isReadOnly) {

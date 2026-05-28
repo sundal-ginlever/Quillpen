@@ -64,7 +64,12 @@ export function hideAuthScreen() {
   setTimeout(() => { as.style.display = 'none'; as.classList.remove('hiding'); }, 300);
 }
 
+let isAuthInitialized = false;
+
 async function afterLogin() {
+  if (isAuthInitialized) return;
+  isAuthInitialized = true;
+  
   hideAuthScreen();
   const user = await import('./state.js').then(m => m.currentUser);
   await ensureUserCanvases();

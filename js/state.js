@@ -6,6 +6,7 @@ import { MIN_ZOOM, MAX_ZOOM } from './config.js';
 export const state = {
   widgets: {},
   connections: {},
+  deletedConnectionIds: new Set(), // 삭제된 연결선 ID 추적 (좀비 연결선 부활 원천 차단)
   selectedIds: new Set(),
   activeTool: 'select',
   showGrid: true,

@@ -74,14 +74,37 @@ export function renderSpreadsheet(w) {
 
   // 2. Jspreadsheet 초기화 (재시도 로직 포함)
   let retryCount = 0;
+  let initialTimeout = null;
+  let retryTimeout = null;
+  let jinst = null;
+
+  // 동기식 클린업 정의로 비동기 Race Condition 및 리스너 누수 차단
+  el._cleanupFn = () => {
+    if (initialTimeout) clearTimeout(initialTimeout);
+    if (retryTimeout) clearTimeout(retryTimeout);
+    if (w._jexcelSaveTimeout) clearTimeout(w._jexcelSaveTimeout);
+    
+    try {
+      if (jinst && typeof jinst.destroy === 'function') {
+        jinst.destroy();
+      }
+    } catch(e) {}
+    
+    const luckyDiv = document.getElementById(luckyContainerId);
+    if (luckyDiv) luckyDiv.innerHTML = ''; 
+  };
+
   function initJexcel() {
+    // 위젯이 DOM에서 파괴되었으면 재시도 중단
+    if (!document.getElementById('w-' + w.id)) return;
+
     const containerEl = document.getElementById(luckyContainerId);
     
     // 1) 위젯이 화면에 붙지 않은 상태면 대기
     if (!containerEl || containerEl.offsetWidth === 0) {
       if (retryCount < 50) {
         retryCount++;
-        setTimeout(initJexcel, 200);
+        retryTimeout = setTimeout(initJexcel, 200);
       } else {
         if (containerEl) containerEl.innerHTML = '<div style="padding:20px;color:#ef4444;font-size:12px;">위젯 로드 실패 (크기 계산 오류)</div>';
       }
@@ -92,7 +115,7 @@ export function renderSpreadsheet(w) {
     if (typeof jspreadsheet === 'undefined') {
       if (retryCount < 50) { // 최대 10초 대기
         retryCount++;
-        setTimeout(initJexcel, 200);
+        retryTimeout = setTimeout(initJexcel, 200);
       } else {
         containerEl.innerHTML = '<div style="padding:20px;color:#ef4444;font-size:12px;">라이브러리 로드 지연 (인터넷 환경을 확인해주세요)</div>';
       }
@@ -117,7 +140,7 @@ export function renderSpreadsheet(w) {
     containerEl.innerHTML = ''; // "준비 중..." 문구 지우기
 
     try {
-      const jinst = jspreadsheet(containerEl, {
+      jinst = jspreadsheet(containerEl, {
         data: initialData,
         minDimensions: [8, 15],
         tableOverflow: true,
@@ -217,18 +240,6 @@ export function renderSpreadsheet(w) {
           events.emit('app:save');
         }, 500);
       }
-
-      el._cleanupFn = () => {
-        if (w._jexcelSaveTimeout) clearTimeout(w._jexcelSaveTimeout);
-        // Jspreadsheet 소멸 처리
-        try {
-          if (containerEl && jinst && typeof jinst.destroy === 'function') {
-            jinst.destroy();
-          }
-        } catch(e) {}
-        const luckyDiv = document.getElementById(luckyContainerId);
-        if (luckyDiv) luckyDiv.innerHTML = ''; 
-      };
     } catch(err) {
       console.error('Jspreadsheet create error:', err);
       if (containerEl) containerEl.innerHTML = `<div style="padding:20px;color:#ef4444;font-size:11px;">초기화 오류: ${err.message}</div>`;
@@ -236,7 +247,7 @@ export function renderSpreadsheet(w) {
   }
 
   // 첫 실행 지연
-  setTimeout(initJexcel, 50);
+  initialTimeout = setTimeout(initJexcel, 50);
   attachResizeHandle(el, w.id, 300, 200);
   return el;
 }

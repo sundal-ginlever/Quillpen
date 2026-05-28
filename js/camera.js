@@ -7,6 +7,34 @@ import { events } from './events.js';
 
 export function applyCamera() {
   const world = document.getElementById('world');
+  
+  // 무한 우주 이탈 차단 (Clamping Bounds)
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let minX = -3000, maxX = 3000, minY = -3000, maxY = 3000;
+  const widgets = Object.values(state.widgets);
+  if (widgets.length > 0) {
+    minX = Math.min(...widgets.map(w => w.x)) - 3000;
+    maxX = Math.max(...widgets.map(w => w.x + w.w)) + 3000;
+    minY = Math.min(...widgets.map(w => w.y)) - 3000;
+    maxY = Math.max(...widgets.map(w => w.y + w.h)) + 3000;
+  }
+  
+  // 월드 중심 Clamping 제한
+  const cx = (vw / 2 - camera.x) / camera.zoom;
+  const cy = (vh / 2 - camera.y) / camera.zoom;
+  const ccx = Math.max(minX, Math.min(maxX, cx));
+  const ccy = Math.max(minY, Math.min(maxY, cy));
+  camera.x = vw / 2 - ccx * camera.zoom;
+  camera.y = vh / 2 - ccy * camera.zoom;
+  
+  // targetCamera 타겟 경계 제한 일치
+  const tcx = (vw / 2 - targetCamera.x) / targetCamera.zoom;
+  const tcy = (vh / 2 - targetCamera.y) / targetCamera.zoom;
+  const tccx = Math.max(minX, Math.min(maxX, tcx));
+  const tccy = Math.max(minY, Math.min(maxY, tcy));
+  targetCamera.x = vw / 2 - tccx * targetCamera.zoom;
+  targetCamera.y = vh / 2 - tccy * targetCamera.zoom;
+
   if (world) world.style.transform = `translate(${camera.x}px,${camera.y}px) scale(${camera.zoom})`;
   
   events.emit('camera:change');

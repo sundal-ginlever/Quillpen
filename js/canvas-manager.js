@@ -15,12 +15,23 @@ export async function fetchCanvases() {
 
 export async function createNewCanvas() {
   if (!sb || !currentUser) return;
-  const name = prompt('캔버스 이름', '새 캔버스') || '새 캔버스';
   
   // 기존 데이터 안전하게 백업 및 동기화 수행
-  saveLocal();
-  await flushToCloud();
+  try {
+    saveLocal();
+    await flushToCloud();
+  } catch (e) {
+    console.error("Backup failed during canvas creation:", e);
+  }
 
+  // 데이터 동기화 완료 검증 (동기화되지 않은 수정 사항이 있으면 유실 확인)
+  if (pendingChanges.size > 0 || pendingDeletes.size > 0) {
+    if (!confirm('현재 캔버스의 최신 변경 사항이 클라우드에 아직 저장되지 못했습니다.\n이대로 진행하면 저장되지 않은 일부 데이터가 영구 유실될 수 있습니다. 계속하시겠습니까?')) {
+      return;
+    }
+  }
+
+  const name = prompt('캔버스 이름', '새 캔버스') || '새 캔버스';
   const { data } = await sb.from('q_canvases').insert({ user_id: currentUser.id, name }).select().single();
   if (data) {
     clearCanvas();
@@ -32,8 +43,20 @@ export async function createNewCanvas() {
 }
 
 export async function switchCanvas(id, name) {
-  saveLocal();
-  if (sb && currentUser) await flushToCloud();
+  try {
+    saveLocal();
+    if (sb && currentUser) await flushToCloud();
+  } catch (e) {
+    console.error("Backup failed during canvas switch:", e);
+  }
+
+  // 데이터 동기화 완료 검증 (동기화되지 않은 수정 사항이 있으면 유실 확인)
+  if (pendingChanges.size > 0 || pendingDeletes.size > 0) {
+    if (!confirm('현재 캔버스의 최신 변경 사항이 클라우드에 아직 저장되지 못했습니다.\n이대로 진행하면 저장되지 않은 일부 데이터가 영구 유실될 수 있습니다. 계속하시겠습니까?')) {
+      return;
+    }
+  }
+
   clearCanvas();
   setCurrentCanvasId(id);
   localStorage.setItem('inkcanvas_last_canvas_' + currentUser?.id, id);

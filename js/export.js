@@ -148,10 +148,21 @@ export function exportPNG() {
     if (w.type === 'image' && w.src) {
       return new Promise(resolve => {
         const img = new Image();
-        img.crossOrigin = 'anonymous';
+        
+        if (w.src.startsWith('http')) {
+          img.crossOrigin = 'anonymous';
+          const connector = w.src.includes('?') ? '&' : '?';
+          img.src = `${w.src}${connector}cors-bypass=${Date.now()}`;
+        } else {
+          img.crossOrigin = ''; // Reset
+          img.src = w.src;
+        }
+
         img.onload = () => { w._cachedImg = img; resolve(); };
-        img.onerror = () => resolve();
-        img.src = w.src;
+        img.onerror = () => {
+          console.warn(`CORS image load failed: ${w.src}`);
+          resolve(); 
+        };
       });
     }
     return Promise.resolve();

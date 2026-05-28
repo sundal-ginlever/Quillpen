@@ -196,7 +196,7 @@ export function renderSketch(w) {
     if (curPts.length > 0) {
       const wd = state.widgets[w.id];
       if (wd) {
-        const simplified = simplifyPoints(curPts, 0.5);
+        const simplified = simplifyPoints(curPts, 1.2);
         wd.strokes.push({ points: simplified, color: tool === 'eraser' ? 'transparent' : curColor, width: curWidth });
         updateWidget(w.id, { strokes: wd.strokes });
       }

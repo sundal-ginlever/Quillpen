@@ -42,6 +42,7 @@ export function renderConnections() {
     path.addEventListener('contextmenu', e => {
       e.preventDefault(); e.stopPropagation();
       if (confirm('이 연결선을 삭제하시겠습니까?')) {
+        state.deletedConnectionIds.add(id); // 로컬 명시적 삭제 기록 보존
         delete state.connections[id];
         renderConnections();
         events.emit('app:save');

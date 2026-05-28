@@ -109,6 +109,8 @@ export async function flushToCloud() {
 
   isSyncing = true;
   setSyncState('syncing', '서버 저장 중...');
+  
+  const flushStartTimestamp = Date.now(); // Race condition 방어용 통신 개시 동결 시각
   const idsToPush = Array.from(pendingChanges);
   const idsToDelete = Array.from(pendingDeletes);
 
@@ -129,7 +131,7 @@ export async function flushToCloud() {
           id: w.id, canvas_id: currentCanvasId, user_id: currentUser.id,
           type: w.type, x: w.x, y: w.y, w: w.w, h: w.h,
           z_index: w.zIndex, data: widgetData(w),
-          updated_at: new Date(w.updatedAt || Date.now()).toISOString(),
+          updated_at: new Date(w.updatedAt || flushStartTimestamp).toISOString(),
         });
       }
     });
@@ -139,17 +141,37 @@ export async function flushToCloud() {
       if (error) throw error;
     }
     
-    // Success: Clear those specific IDs from pending
-    idsToPush.forEach(id => pendingChanges.delete(id));
+    // Success: 비동기 통신이 이뤄지는 도중(await)에 새롭게 변경된 최신 좌표 데이터는 pendingChanges에서 지우지 않고 보존
+    idsToPush.forEach(id => {
+      const w = state.widgets[id];
+      if (!w || (w.updatedAt || 0) <= flushStartTimestamp) {
+        pendingChanges.delete(id);
+      }
+    });
 
 
     // 1. Fetch current remote connections to prevent LWW loss
     const { data: canvasMeta } = await withTimeout(sb.from('q_canvases').select('settings').eq('id', currentCanvasId).single());
     let mergedConnections = state.connections;
     if (canvasMeta && canvasMeta.settings && canvasMeta.settings.connections) {
-      // Merge: remote connections + local connections
-      // Local changes take precedence if keys collide
       mergedConnections = { ...canvasMeta.settings.connections, ...state.connections };
+      
+      // 1) 로컬에서 명시적으로 삭제된 연결선의 원격 DB 좀비 부활 차단
+      if (state.deletedConnectionIds) {
+        state.deletedConnectionIds.forEach(cid => {
+          delete mergedConnections[cid];
+        });
+      }
+
+      // 2) 고아 연결선(참조 위젯이 존재하지 않거나 캔버스 삭제 예정 목록에 있는 경우) 제거
+      Object.keys(mergedConnections).forEach(cid => {
+        const c = mergedConnections[cid];
+        const isOrphan = !state.widgets[c.fromId] || !state.widgets[c.toId] || 
+                         pendingDeletes.has(c.fromId) || pendingDeletes.has(c.toId);
+        if (isOrphan) {
+          delete mergedConnections[cid];
+        }
+      });
     }
 
     await withTimeout(sb.from('q_canvases').update({
@@ -492,7 +514,9 @@ export function saveLocal() {
       showGrid: state.showGrid,
       snapOn: state.snapOn,
       connections: state.connections,
-      pendingDeletes: Array.from(pendingDeletes)
+      deletedConnectionIds: Array.from(state.deletedConnectionIds || []), // 로컬 삭제 연결선 보존
+      pendingDeletes: Array.from(pendingDeletes),
+      pendingChanges: Array.from(pendingChanges) // 로컬 수정 큐 보존
     }));
   } catch (e) {
     console.error('saveLocal failed', e);
@@ -509,10 +533,22 @@ export function loadLocal() {
     if (d.camera) { camera.x = d.camera.x; camera.y = d.camera.y; camera.zoom = d.camera.zoom; }
     if (d.showGrid !== undefined) state.showGrid = d.showGrid;
     if (d.snapOn !== undefined) state.snapOn = d.snapOn;
+    
+    // 오프라인 수정 큐 및 삭제 연결선 복구
     if (d.pendingDeletes) {
       pendingDeletes.clear();
       d.pendingDeletes.forEach(id => pendingDeletes.add(id));
     }
+    if (d.pendingChanges) {
+      pendingChanges.clear();
+      d.pendingChanges.forEach(id => pendingChanges.add(id));
+    }
+    if (d.deletedConnectionIds) {
+      state.deletedConnectionIds = new Set(d.deletedConnectionIds);
+    } else {
+      state.deletedConnectionIds = new Set();
+    }
+
     if (d.widgets) {
       Object.values(d.widgets).forEach(w => {
         if (w.type === 'spreadsheet') {
@@ -552,20 +588,24 @@ function getHash(data) {
 }
 
 export async function checkLocalVersionConflict() {
-  migrateLiveKeyToDynamic();
-  const live = storage.getItem(getLiveKey());
-  if (!live) { migrateOldData(); return; }
-  
-  const synced = JSON.parse(storage.getItem(getSyncedKey()) || 'null');
-  if (!synced) return;
+  try {
+    migrateLiveKeyToDynamic();
+    const live = storage.getItem(getLiveKey());
+    if (!live) { migrateOldData(); return; }
+    
+    const synced = JSON.parse(storage.getItem(getSyncedKey()) || 'null');
+    if (!synced) return;
 
-  const liveObj = JSON.parse(live);
-  const liveHash = getHash(liveObj.widgets || {});
-  if (liveHash !== synced.hash) {
-    // Conflict! Live data has changed since last cloud sync
-    storage.setItem(getBackupKey(), live);
-    const alert = document.getElementById('local-version-alert');
-    if (alert) alert.style.display = 'block';
+    const liveObj = JSON.parse(live);
+    const liveHash = getHash(liveObj.widgets || {});
+    if (liveHash !== synced.hash) {
+      // Conflict! Live data has changed since last cloud sync
+      storage.setItem(getBackupKey(), live);
+      const alert = document.getElementById('local-version-alert');
+      if (alert) alert.style.display = 'block';
+    }
+  } catch (err) {
+    console.error("Local version parsing self-healed:", err);
   }
 }
 
