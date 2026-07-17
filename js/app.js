@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════
 // APP.JS — Entry Point & Module Orchestration
 // ══════════════════════════════════════════
-import { state, camera, setTheme, currentUser, currentCanvasId, currentCanvasName } from './state.js';
+import { state, camera, setTheme, currentUser, currentCanvasId, currentCanvasName, isReadOnly } from './state.js';
 import { sb } from './supabase.js';
 import { drawGrid, initGridResize } from './grid.js';
 import { applyCamera, startCameraLoop, screenToWorld, worldToScreen, pan, zoomAt, fitToAll, fitToSelection } from './camera.js';
@@ -10,7 +10,6 @@ import { renderConnections, getAnchorPos, getBezierPath } from './connections.js
 import { createWidget, renderWidget, updateWidget, deleteWidget, bringToFront, setSelected } from './widgets/core.js';
 import { save, saveLocal, loadLocal, pendingChanges, setSyncState, flushToCloud, loadFromCloud, rowToWidget, restoreFromBackup, discardBackup, checkLocalVersionConflict, schedulePush } from './sync.js';
 import { processImageFile } from './widgets/image.js';
-import { sanitizeSVG } from './utils.js';
 import { initAuth, initAuthUI } from './auth.js';
 import { openCanvasPicker, closeCanvasPicker, createNewCanvas, switchCanvas, clearCanvas, initCanvasPickerEvents } from './canvas-manager.js';
 import { buildToolbar, setTool, updateStatusBar, TOOLS } from './toolbar.js';
@@ -105,9 +104,10 @@ window.createWidgetAtCenter = createWidgetAtCenter;
 // HELPER: create widget at center (for mobile FAB)
 // ══════════════════════════════════════════
 function createWidgetAtCenter(type) {
-  if (state.isReadOnly) return;
+  if (isReadOnly) return;
   const w = window.innerWidth, h = window.innerHeight;
   const wp = screenToWorld(w / 2, h / 2);
+  snapshotForUndo();
   const wgt = createWidget(type, wp.x - 100, wp.y - 100);
   state.widgets[wgt.id] = wgt;
   pendingChanges.add(wgt.id);
@@ -128,6 +128,8 @@ function startCanvas() {
   buildToolbar();
   applyCamera();
   updateStatusBar();
+  // 로드 직후의 상태를 Undo 기준선으로 저장 (첫 번째 동작도 Ctrl+Z로 되돌릴 수 있게 함)
+  if (!isReadOnly) snapshotForUndo();
 }
 
 // Make startCanvas available via bridge
@@ -172,7 +174,7 @@ document.addEventListener('dragover', e => {
   e.preventDefault();
 });
 document.addEventListener('drop', e => {
-  if (state.isReadOnly) return;
+  if (isReadOnly) return;
   if (e.target.closest('[data-widget-id]')) return;
   const file = e.dataTransfer?.files[0];
   if (!file || !file.type.startsWith('image/')) return;
@@ -181,32 +183,25 @@ document.addEventListener('drop', e => {
   if (!rootEl) return;
   const rect = rootEl.getBoundingClientRect();
   const wp = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+  snapshotForUndo();
   const w = createWidget('image', wp.x - 140, wp.y - 100);
   state.widgets[w.id] = w; pendingChanges.add(w.id); renderWidget(w); setSelected([w.id]);
-  const reader = new FileReader();
-  reader.onload = ev => {
-    let dataUrl = ev.target.result;
-    if (file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) {
-      dataUrl = sanitizeSVG(dataUrl);
-    }
-    updateWidget(w.id, { src: dataUrl, alt: file.name });
-    state.widgets[w.id].src = dataUrl;
+  processImageFile(file, w.id, (src) => {
     const imgEl = document.getElementById('w-' + w.id);
     if (imgEl) {
       const content = imgEl.querySelector('.img-content');
-      if (content) { content.innerHTML = ''; const img = document.createElement('img'); img.src = dataUrl; img.style.cssText = 'width:100%;height:100%;object-fit:contain'; content.appendChild(img); }
+      if (content) { content.innerHTML = ''; const img = document.createElement('img'); img.src = src; img.style.cssText = 'width:100%;height:100%;object-fit:contain'; img.draggable = false; content.appendChild(img); }
     }
-    save();
-  };
-  reader.readAsDataURL(file);
+  });
 });
 
 // Clipboard paste handler
 document.addEventListener('paste', e => {
-  if (state.isReadOnly) return;
+  if (isReadOnly) return;
   const t = e.target;
   if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
-  const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+  const items = e.clipboardData?.items;
+  if (!items) return;
   for (const item of items) {
     if (item.type.indexOf('image') !== -1) {
       e.preventDefault();
@@ -216,6 +211,7 @@ document.addEventListener('paste', e => {
       const x = window._lastMouseX !== undefined ? window._lastMouseX : window.innerWidth / 2;
       const y = window._lastMouseY !== undefined ? window._lastMouseY : window.innerHeight / 2;
       const wp = screenToWorld(x, y);
+      snapshotForUndo();
       const w = createWidget('image', wp.x - 140, wp.y - 100);
       state.widgets[w.id] = w; pendingChanges.add(w.id); renderWidget(w); setSelected([w.id]);
       processImageFile(file, w.id, (src) => {

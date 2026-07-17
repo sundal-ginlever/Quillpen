@@ -62,11 +62,29 @@ function widgetsDiffer(w1, w2) {
   return false;
 }
 
-export function snapshotForUndo() {
-  if (undoBlocked) return;
+function currentSnapshot() {
   const snapWidgets = {};
   for (const id in state.widgets) snapWidgets[id] = cloneWidget(state.widgets[id]);
-  undoStack.push({ widgets: snapWidgets, connections: JSON.parse(JSON.stringify(state.connections)), camera: { ...camera } });
+  return { widgets: snapWidgets, connections: JSON.parse(JSON.stringify(state.connections)), camera: { ...camera } };
+}
+
+// 위젯·연결선 기준으로 두 스냅샷이 실질적으로 동일한지 비교 (카메라 위치는 실행 취소 대상에서 제외)
+function snapshotsEqual(a, b) {
+  if (!a || !b) return false;
+  const aIds = Object.keys(a.widgets), bIds = Object.keys(b.widgets);
+  if (aIds.length !== bIds.length) return false;
+  for (const id of aIds) {
+    if (!b.widgets[id] || widgetsDiffer(a.widgets[id], b.widgets[id])) return false;
+  }
+  return JSON.stringify(a.connections || {}) === JSON.stringify(b.connections || {});
+}
+
+export function snapshotForUndo() {
+  if (undoBlocked) return;
+  const snap = currentSnapshot();
+  // 직전 스냅샷과 동일하면 push 생략 (사전/사후 이중 스냅샷으로 인한 스택 오염 방지)
+  if (snapshotsEqual(undoStack[undoStack.length - 1], snap)) return;
+  undoStack.push(snap);
   if (undoStack.length > UNDO_LIMIT) undoStack.shift();
   redoStack.length = 0;
 }
@@ -125,12 +143,17 @@ function applySnapshot(snap) {
 }
 
 export function undo() {
-  if (!undoStack.length) { showUndoToast('더 이상 되돌릴 수 없습니다'); return; }
-  const currentSnap = {};
-  for (const id in state.widgets) currentSnap[id] = cloneWidget(state.widgets[id]);
-  redoStack.push({ widgets: currentSnap, connections: JSON.parse(JSON.stringify(state.connections)), camera: { ...camera } });
+  const current = currentSnapshot();
+  // 현재 상태와 동일한(사후 저장 시점) 스냅샷은 건너뛰고 실제로 다른 과거 상태를 찾는다
+  let target = null;
+  while (undoStack.length) {
+    const s = undoStack.pop();
+    if (!snapshotsEqual(s, current)) { target = s; break; }
+  }
+  if (!target) { showUndoToast('더 이상 되돌릴 수 없습니다'); return; }
+  redoStack.push(current);
   undoBlocked = true;
-  applySnapshot(undoStack.pop());
+  applySnapshot(target);
   undoBlocked = false;
   events.emit('app:save-local');
   events.emit('app:schedule-push');
@@ -138,12 +161,16 @@ export function undo() {
 }
 
 export function redo() {
-  if (!redoStack.length) { showUndoToast('다시 실행할 내용이 없습니다'); return; }
-  const currentSnap = {};
-  for (const id in state.widgets) currentSnap[id] = cloneWidget(state.widgets[id]);
-  undoStack.push({ widgets: currentSnap, connections: JSON.parse(JSON.stringify(state.connections)), camera: { ...camera } });
+  const current = currentSnapshot();
+  let target = null;
+  while (redoStack.length) {
+    const s = redoStack.pop();
+    if (!snapshotsEqual(s, current)) { target = s; break; }
+  }
+  if (!target) { showUndoToast('다시 실행할 내용이 없습니다'); return; }
+  undoStack.push(current);
   undoBlocked = true;
-  applySnapshot(redoStack.pop());
+  applySnapshot(target);
   undoBlocked = false;
   events.emit('app:save-local');
   events.emit('app:schedule-push');

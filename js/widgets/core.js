@@ -6,7 +6,7 @@ import { nanoid } from '../utils.js';
 import { attachAnchors } from '../connections.js';
 import { events } from '../events.js';
 import { sb } from '../supabase.js';
-import { pendingDeletes } from '../sync.js';
+import { pendingDeletes, pendingStorageDeletes } from '../sync.js';
 import { renderMemo } from './memo.js';
 import { renderSketch } from './sketch.js';
 import { renderSpreadsheet } from './spreadsheet.js';
@@ -20,6 +20,9 @@ export function updateWidget(id, updates) {
 }
 
 export function bringToFront(id) {
+  if (!state.widgets[id]) return;
+  // 이미 최상단이면 z-index 갱신·저장·스냅샷을 생략 (클릭할 때마다 불필요한 저장이 쌓이는 것 방지)
+  if (state.widgets[id].zIndex === state.nextZ - 1) return;
   state.widgets[id].zIndex = state.nextZ++;
   const el = document.getElementById('w-' + id);
   if (el) el.style.zIndex = state.widgets[id].zIndex;
@@ -45,18 +48,16 @@ export function deleteWidget(id) {
     return;
   }
 
-  // 4번 이슈: 이미지 위젯인 경우 Supabase Storage의 실제 파일도 삭제해 고아 파일 누수 방지
+  // 이미지 위젯의 Storage 파일은 즉시 지우지 않고 보류 큐에 등록 —
+  // 다음 클라우드 동기화(flushToCloud) 시점에 실제 삭제되며, 그 전에 Ctrl+Z로
+  // 위젯을 복원하면 삭제가 취소되어 이미지가 깨지지 않음
   const w = state.widgets[id];
   if (w && w.type === 'image' && w.src && sb) {
     const bucketPrefix = 'storage/v1/object/public/quillpen-images/';
     if (w.src.includes(bucketPrefix)) {
       const parts = w.src.split(bucketPrefix);
       if (parts.length > 1) {
-        const fileName = decodeURIComponent(parts[1]);
-        sb.storage.from('quillpen-images').remove([fileName]).then(({ error }) => {
-          if (error) console.error('Failed to delete image file from Supabase storage', error);
-          else console.log('Successfully deleted image file from Supabase storage:', fileName);
-        });
+        pendingStorageDeletes.set(id, decodeURIComponent(parts[1]));
       }
     }
   }

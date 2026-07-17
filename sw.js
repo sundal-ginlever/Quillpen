@@ -1,4 +1,5 @@
-const CACHE_NAME = 'quillpen-cache-v1';
+const CACHE_NAME = 'quillpen-cache-v2';
+const DYNAMIC_CACHE_NAME = 'quillpen-dynamic-v1';
 const URLS_TO_CACHE = [
   '/',
   '/index.html',
@@ -22,6 +23,9 @@ const URLS_TO_CACHE = [
   '/js/share.js',
   '/js/supabase.js',
   '/js/grid.js',
+  '/js/auth.js',
+  '/js/guide.js',
+  '/js/help.js',
   '/js/widgets/core.js',
   '/js/widgets/memo.js',
   '/js/widgets/sketch.js',
@@ -34,20 +38,24 @@ self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
       return cache.addAll(URLS_TO_CACHE);
-    })
+    }).then(() => self.skipWaiting())
   );
 });
 
 self.addEventListener('fetch', event => {
   const req = event.request;
-  
+
+  // 캐시는 GET 요청만 지원 (Supabase REST POST/PATCH 등은 그대로 통과)
+  if (req.method !== 'GET') return;
+
+  // 외부 CDN 등 크로스 오리진: 캐시 우선 + 백그라운드 갱신
   if (req.url.startsWith('http') && !req.url.includes(self.location.origin)) {
     event.respondWith(
       caches.match(req).then(cachedRes => {
         const fetchPromise = fetch(req).then(networkRes => {
           if (networkRes && networkRes.status === 200) {
             const clone = networkRes.clone();
-            caches.open('quillpen-dynamic-v1').then(cache => cache.put(req, clone));
+            caches.open(DYNAMIC_CACHE_NAME).then(cache => cache.put(req, clone));
           }
           return networkRes;
         }).catch(() => cachedRes);
@@ -57,29 +65,33 @@ self.addEventListener('fetch', event => {
     return;
   }
 
+  // 동일 오리진: stale-while-revalidate — 캐시로 즉시 응답하되 항상 네트워크로 최신본을 받아 캐시 갱신
+  // (배포 후 새 버전이 사용자에게 전달되지 않던 문제 해결)
   event.respondWith(
-    caches.match(req).then(response => {
-      return response || fetch(req).then(networkRes => {
+    caches.match(req).then(cachedRes => {
+      const fetchPromise = fetch(req).then(networkRes => {
         if (networkRes && networkRes.status === 200) {
           const clone = networkRes.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(req, clone));
         }
         return networkRes;
-      });
-    }).catch(() => caches.match('/index.html'))
+      }).catch(() => cachedRes || caches.match('/index.html'));
+      return cachedRes || fetchPromise;
+    })
   );
 });
 
 self.addEventListener('activate', event => {
+  const KEEP = [CACHE_NAME, DYNAMIC_CACHE_NAME];
   event.waitUntil(
     caches.keys().then(cacheNames => {
       return Promise.all(
         cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME) {
+          if (!KEEP.includes(cacheName)) {
             return caches.delete(cacheName);
           }
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
 });

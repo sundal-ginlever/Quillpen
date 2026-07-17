@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════
 // TOOLBAR + STATUS BAR
 // ══════════════════════════════════════════
-import { state, camera, currentUser, currentCanvasId, currentCanvasName, setCurrentCanvasName, setTheme, targetCamera, setTargetCamera } from './state.js';
+import { state, camera, currentUser, currentCanvasId, currentCanvasName, setCurrentCanvasName, setTheme, targetCamera, setTargetCamera, isReadOnly } from './state.js';
 import { zoomAt, fitToAll, startCameraLoop } from './camera.js';
 import { drawGrid } from './grid.js';
 import { toggleMinimap } from './minimap.js';
@@ -25,7 +25,9 @@ export function buildToolbar(){
   tb.style.cssText='position:absolute;top:20px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:4px;background:var(--header-bg);backdrop-filter:blur(12px);border-radius:16px;padding:6px 10px;box-shadow:var(--shadow-lg);border:1px solid var(--border-color);z-index:100;user-select:none;transition:background 0.3s, border-color 0.3s';
   tb.innerHTML='';
   
-  TOOLS.forEach(t=>{
+  // 읽기 전용(공유 뷰어) 모드에서는 탐색용 도구만 노출
+  const visibleTools = isReadOnly ? TOOLS.filter(t=>['select','hand'].includes(t.id)) : TOOLS;
+  visibleTools.forEach(t=>{
     const btn=document.createElement('button');
     btn.className='tool-btn'+(state.activeTool===t.id?' active':'');
     btn.title=`${t.label} (${t.key})`;
@@ -56,17 +58,21 @@ export function buildToolbar(){
   nameInput.className = 'canvas-name-edit';
   nameInput.value = currentCanvasName;
   nameInput.title = '클릭해서 이름 편집';
+  nameInput.readOnly = isReadOnly;
   nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') nameInput.blur(); e.stopPropagation(); });
   nameInput.addEventListener('blur', async () => {
+    if (isReadOnly) return;
     const nv = nameInput.value.trim();
     if (!nv || nv === currentCanvasName) { nameInput.value = currentCanvasName; return; }
-    currentCanvasName = nv; document.title = `inkcanvas — ${nv}`;
+    setCurrentCanvasName(nv); document.title = `Quillpen — ${nv}`;
     if (typeof sb !== 'undefined' && sb && currentCanvasId && currentCanvasId !== 'local') await sb.from('q_canvases').update({ name: nv }).eq('id', currentCanvasId);
   });
   tb.appendChild(nameInput);
 
   tb.appendChild(sep());
-  const shareBtn = document.createElement('button');shareBtn.className='icon-btn';shareBtn.style.padding='0 10px';shareBtn.style.width='auto';shareBtn.style.fontSize='12px';shareBtn.innerHTML='🔗 공유';shareBtn.title='공유 링크';shareBtn.addEventListener('click',()=> openShareModal());tb.appendChild(shareBtn);
+  if (!isReadOnly) {
+    const shareBtn = document.createElement('button');shareBtn.className='icon-btn';shareBtn.style.padding='0 10px';shareBtn.style.width='auto';shareBtn.style.fontSize='12px';shareBtn.innerHTML='🔗 공유';shareBtn.title='공유 링크';shareBtn.addEventListener('click',()=> openShareModal());tb.appendChild(shareBtn);
+  }
   const expBtn = document.createElement('button');expBtn.className='icon-btn';expBtn.style.padding='0 10px';expBtn.style.width='auto';expBtn.style.fontSize='12px';expBtn.innerHTML='💾 Export';expBtn.title='내보내기';expBtn.addEventListener('click',()=> openExportModal());tb.appendChild(expBtn);
   const helpBtn = document.createElement('button');helpBtn.className='icon-btn';helpBtn.style.width='32px';helpBtn.style.height='32px';helpBtn.innerHTML='❓';helpBtn.title='도움말';helpBtn.addEventListener('click',()=> openHelpModal());tb.appendChild(helpBtn);
   
@@ -117,5 +123,5 @@ export function updateStatusBar(){
   sb2.style.cssText='position:absolute;bottom:20px;left:20px;background:var(--header-bg);backdrop-filter:blur(10px);border-radius:10px;padding:6px 14px;box-shadow:var(--shadow);border:1px solid var(--border-color);font-size:11px;color:var(--app-text-muted);font-family:monospace;z-index:100;display:flex;gap:14px;align-items:center';
   const tipMap={select:'Del=삭제 · Shift=다중선택',hand:'드래그로 캔버스 이동',memo:'드래그로 메모 생성',sketch:'드래그로 스케치 생성',spreadsheet:'드래그로 표 생성',image:'드래그로 이미지 생성'};
   const tip = tipMap[state.activeTool] || '';
-  sb2.innerHTML=`<span style="color:var(--accent);font-weight:700" class="hide-on-mobile">INKCANVAS</span><span style="opacity:0.6" class="hide-on-mobile">|</span><span style="color:#475569">${cnt} Widgets</span><span style="color:#475569">Zoom ${zp}%</span><span style="opacity:0.6" class="hide-on-mobile">|</span><span style="color:#6366f1" class="hide-on-mobile">${sanitize(tip)}</span>`;
+  sb2.innerHTML=`<span style="color:var(--accent);font-weight:700" class="hide-on-mobile">QUILLPEN</span><span style="opacity:0.6" class="hide-on-mobile">|</span><span style="color:#475569">${cnt} Widgets</span><span style="color:#475569">Zoom ${zp}%</span><span style="opacity:0.6" class="hide-on-mobile">|</span><span style="color:#6366f1" class="hide-on-mobile">${sanitize(tip)}</span>`;
 }

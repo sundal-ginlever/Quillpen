@@ -97,6 +97,38 @@ create trigger q_widgets_updated_at
 -- (SQL로는 불가, 대시보드에서 직접 설정)
 
 -- ══════════════════════════════════════════════════
+-- ⚠️ 보안 주의 (2026-07 감사에서 발견)
+-- 위 5·6번의 "shared read" RLS 정책은 토큰을 몰라도
+--   select * from q_canvases  (anon 키만으로)
+-- 를 실행하면 share_enabled=true인 "모든" 캔버스와 share_token까지
+-- 통째로 조회됩니다. RLS는 클라이언트의 .eq() 필터를 강제할 수 없기
+-- 때문에, 공유 토큰이 사실상 공개 목록이 됩니다.
+--
+-- 개인 사용 수준에서는 위험이 낮지만, 강화하려면 아래처럼
+-- SELECT 정책을 제거하고 SECURITY DEFINER 함수로만 조회를 허용하세요.
+-- (적용 시 js/share.js의 직접 select 호출을 RPC 호출로 바꿔야 하며,
+--  공유 뷰어의 Realtime 구독은 동작하지 않게 됩니다 — 트레이드오프)
+--
+-- drop policy "q_canvases: shared read" on q_canvases;
+-- drop policy "q_widgets: shared read" on q_widgets;
+--
+-- create or replace function get_shared_canvas(p_token text)
+-- returns setof q_canvases language sql security definer stable as $$
+--   select * from q_canvases
+--   where share_token = p_token and share_enabled = true;
+-- $$;
+--
+-- create or replace function get_shared_widgets(p_token text)
+-- returns setof q_widgets language sql security definer stable as $$
+--   select w.* from q_widgets w
+--   join q_canvases c on c.id = w.canvas_id
+--   where c.share_token = p_token and c.share_enabled = true;
+-- $$;
+--
+-- 클라이언트 예시:
+--   const { data } = await sb.rpc('get_shared_canvas', { p_token: shareId });
+
+-- ══════════════════════════════════════════════════
 -- 9. 기존 테이블에서 마이그레이션 (이미 canvases/widgets가 있는 경우)
 -- 아래를 Supabase SQL Editor에서 실행하세요.
 -- ══════════════════════════════════════════════════

@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════
 // SKETCH WIDGET RENDERER
 // ══════════════════════════════════════════
-import { state, setSketchDrawing, isReadOnly } from '../state.js';
+import { state, camera, setSketchDrawing, isReadOnly } from '../state.js';
 import { resizeHandleHTML, attachResizeHandle } from '../utils.js';
 import { updateWidget, deleteWidget } from './core.js';
 import { events } from '../events.js';
@@ -107,31 +107,40 @@ export function renderSketch(w) {
     ctx.clearRect(0, 0, cvs.width, cvs.height);
     (state.widgets[w.id]?.strokes || []).forEach(stroke => {
       if (stroke.points.length < 1) return;
-      ctx.beginPath();
       const isEraser = stroke.color === 'transparent';
       ctx.globalCompositeOperation = isEraser ? 'destination-out' : 'source-over';
       ctx.strokeStyle = isEraser ? 'rgba(0,0,0,1)' : stroke.color;
-      ctx.lineWidth = stroke.width;
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       if (stroke.points.length === 1) {
-        if (isEraser) {
-          ctx.fillStyle = 'rgba(0,0,0,1)';
-          ctx.arc(stroke.points[0].x, stroke.points[0].y, stroke.width / 2, 0, Math.PI * 2);
-          ctx.fill();
-        } else {
-          ctx.fillStyle = stroke.color;
-          ctx.arc(stroke.points[0].x, stroke.points[0].y, stroke.width / 2, 0, Math.PI * 2);
-          ctx.fill();
-        }
+        const pw = stroke.points[0].w || stroke.width;
+        ctx.beginPath();
+        ctx.fillStyle = isEraser ? 'rgba(0,0,0,1)' : stroke.color;
+        ctx.arc(stroke.points[0].x, stroke.points[0].y, pw / 2, 0, Math.PI * 2);
+        ctx.fill();
         ctx.globalCompositeOperation = 'source-over';
         return;
       }
-      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
-      for (let i = 1; i < stroke.points.length; i++) {
-        const p1 = stroke.points[i - 1], p2 = stroke.points[i];
-        ctx.quadraticCurveTo(p1.x, p1.y, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
+      // 점 단위 굵기(속도 반응 필압)가 저장된 스트로크는 그릴 때와 동일하게 세그먼트별로 재현
+      const hasPointWidths = stroke.points.some(p => p.w !== undefined);
+      if (hasPointWidths) {
+        for (let i = 1; i < stroke.points.length; i++) {
+          const p1 = stroke.points[i - 1], p2 = stroke.points[i];
+          ctx.beginPath();
+          ctx.lineWidth = p2.w || p1.w || stroke.width;
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.stroke();
+        }
+      } else {
+        ctx.beginPath();
+        ctx.lineWidth = stroke.width;
+        ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+        for (let i = 1; i < stroke.points.length; i++) {
+          const p1 = stroke.points[i - 1], p2 = stroke.points[i];
+          ctx.quadraticCurveTo(p1.x, p1.y, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
+        }
+        ctx.stroke();
       }
-      ctx.stroke();
       ctx.globalCompositeOperation = 'source-over';
     });
   }
@@ -164,7 +173,9 @@ export function renderSketch(w) {
     }
     drawing = true; setSketchDrawing(true); curPts = [];
     const r = cvs.getBoundingClientRect();
-    const pt = { x: e.clientX - r.left, y: e.clientY - r.top };
+    // 캔버스가 월드 transform으로 확대/축소된 상태에서는 화면 좌표를 줌 배율로 나눠야 내부 좌표와 일치
+    const z = camera.zoom || 1;
+    const pt = { x: (e.clientX - r.left) / z, y: (e.clientY - r.top) / z };
     curPts.push(pt); lastPt = pt; lastTime = Date.now();
     cvs.setPointerCapture(e.pointerId);
     localRedoStack = [];
@@ -173,7 +184,8 @@ export function renderSketch(w) {
   cvs.onpointermove = e => {
     if (!drawing) return;
     const r = cvs.getBoundingClientRect();
-    const pt = { x: e.clientX - r.left, y: e.clientY - r.top }, now = Date.now();
+    const z = camera.zoom || 1;
+    const pt = { x: (e.clientX - r.left) / z, y: (e.clientY - r.top) / z }, now = Date.now();
     const dist = Math.sqrt(Math.pow(pt.x - lastPt.x, 2) + Math.pow(pt.y - lastPt.y, 2));
     const dt = now - lastTime;
     const speed = dist / (dt || 1);
@@ -197,7 +209,8 @@ export function renderSketch(w) {
       const wd = state.widgets[w.id];
       if (wd) {
         const simplified = simplifyPoints(curPts, 1.2);
-        wd.strokes.push({ points: simplified, color: tool === 'eraser' ? 'transparent' : curColor, width: curWidth });
+        // 지우개는 그릴 때의 실효 굵기(x6)를 그대로 저장해 재렌더 시 지운 영역이 되살아나지 않게 함
+        wd.strokes.push({ points: simplified, color: tool === 'eraser' ? 'transparent' : curColor, width: tool === 'eraser' ? curWidth * 6 : curWidth });
         updateWidget(w.id, { strokes: wd.strokes });
       }
       events.emit('app:save');

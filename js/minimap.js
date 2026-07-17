@@ -15,9 +15,16 @@ export function toggleMinimap() {
   events.emit('ui:update');
 }
 
+let trailingTimer = null;
 export function updateMinimap() {
   const now = Date.now();
-  if (now - state.lastMinimapUpdate < 50) return;
+  if (now - state.lastMinimapUpdate < 50) {
+    // 스로틀에 걸린 마지막 호출은 지연 후 반영 (빠른 팬 종료 시 뷰포트 사각형이 어긋난 채 멈추는 것 방지)
+    if (!trailingTimer) {
+      trailingTimer = setTimeout(() => { trailingTimer = null; updateMinimap(); }, 60);
+    }
+    return;
+  }
   state.lastMinimapUpdate = now;
 
   const container = document.getElementById('minimap');

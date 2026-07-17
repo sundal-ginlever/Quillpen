@@ -49,7 +49,7 @@ export function startDemo() {
   setSyncState('offline', '로컬 모드');
   setCurrentCanvasId('local');
   setCurrentCanvasName('로컬 캔버스');
-  document.title = 'inkcanvas — 로컬 캔버스';
+  document.title = 'Quillpen — 로컬 캔버스';
   events.emit('app:load-local');
   events.emit('app:start');
 }
@@ -90,7 +90,8 @@ async function ensureUserCanvases() {
 async function openLastCanvas() {
   const user = (await import('./state.js')).currentUser;
   if (!sb || !user) return;
-  const lastId = localStorage.getItem('inkcanvas_last_canvas_' + user.id);
+  // 신규 키 우선, 과거 inkcanvas 키는 폴백으로 읽어 마지막 캔버스 기억을 유지
+  const lastId = localStorage.getItem('quillpen_last_canvas_' + user.id) || localStorage.getItem('inkcanvas_last_canvas_' + user.id);
   if (lastId) {
     const { data } = await sb.from('q_canvases').select('id').eq('id', lastId).eq('user_id', user.id).single();
     if (data) { setCurrentCanvasId(data.id); return; }

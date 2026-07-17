@@ -2,7 +2,7 @@
 // INTERACTION — Mouse, Touch, Keyboard Events
 // ══════════════════════════════════════════
 import { SNAP, MIN_DRAW } from './config.js';
-import { state, camera, sketchDrawing } from './state.js';
+import { state, camera, sketchDrawing, isReadOnly } from './state.js';
 import { nanoid, snapRect } from './utils.js';
 import { screenToWorld, worldToScreen, pan, zoomAt, startCameraLoop, fitToAll, fitToSelection } from './camera.js';
 import { renderConnections, getAnchorPos, getBezierPath } from './connections.js';
@@ -116,7 +116,7 @@ export function initInteraction() {
   // ── Connection anchor start ──
   let connStart = null;
   world.addEventListener('pointerdown', e => {
-    if (state.isReadOnly) return;
+    if (isReadOnly) return;
     const a = e.target.closest('.anchor-point');
     if (a) {
       e.preventDefault(); e.stopPropagation();
@@ -134,7 +134,7 @@ export function initInteraction() {
     if (e.pointerType === 'touch') return;
     
     // 읽기 전용 가드 (화면 이동만 허용하고 그 외 모든 쓰기 동작 원천 봉쇄)
-    if (state.isReadOnly) {
+    if (isReadOnly) {
       const isPanAction = state.activeTool === 'hand' || e.button === 1 || (e.button === 0 && e.altKey);
       if (isPanAction) {
         e.preventDefault();
@@ -185,6 +185,9 @@ export function initInteraction() {
         if (el2) { el2.style.transform = `translate3d(${tdx}px, ${tdy}px, 0)`; }
         if (state.widgets[id]) { state.widgets[id].x = s.x + tdx; state.widgets[id].y = s.y + tdy; }
       });
+      // 드래그 중에도 연결선이 위젯을 실시간으로 따라오게 함
+      if (Object.keys(state.connections).length) events.emit('connections:render');
+      if (state.minimapVisible) events.emit('minimap:update');
     } else if (drag.type === 'select' && selBox) {
       selBox.curWorld = screenToWorld(e.clientX - rect.left, e.clientY - rect.top); drawSelBox();
     } else if (drag.type === 'draw' && drawBox) {
@@ -231,6 +234,7 @@ export function initInteraction() {
       const x1 = Math.max(drawBox.startWorld.x, drawBox.curWorld.x), y1 = Math.max(drawBox.startWorld.y, drawBox.curWorld.y);
       const sr = snapRect(x0, y0, x1 - x0, y1 - y0), min = MIN_DRAW[drawBox.type];
       const snapped = snapRect(sr.x, sr.y, Math.max(sr.w, min.w), Math.max(sr.h, min.h));
+      snapshotForUndo();
       const w = createWidget(drawBox.type, snapped.x, snapped.y); w.w = snapped.w; w.h = snapped.h;
       state.widgets[w.id] = w;
       events.emit('pending:add', w.id);
@@ -251,7 +255,7 @@ export function initInteraction() {
     if (e.target.closest('.anchor-point')) return;
     
     // 읽기 전용 가드 (모바일 화면 이동/확대만 허용하고 그 외 모든 조작 봉쇄)
-    if (state.isReadOnly) {
+    if (isReadOnly) {
       if (e.touches.length === 2) {
         e.preventDefault(); 
         const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
@@ -319,12 +323,14 @@ export function initInteraction() {
           snapshotForUndo();
           drag.moved = true;
         }
-        Object.entries(drag.positions).forEach(([id, s]) => { 
-          if (state.widgets[id]?.locked) return; 
-          const el2 = document.getElementById('w-' + id); 
-          if (el2) { el2.style.transform = `translate3d(${tdx}px, ${tdy}px, 0)`; } 
-          if (state.widgets[id]) { state.widgets[id].x = s.x + tdx; state.widgets[id].y = s.y + tdy; } 
+        Object.entries(drag.positions).forEach(([id, s]) => {
+          if (state.widgets[id]?.locked) return;
+          const el2 = document.getElementById('w-' + id);
+          if (el2) { el2.style.transform = `translate3d(${tdx}px, ${tdy}px, 0)`; }
+          if (state.widgets[id]) { state.widgets[id].x = s.x + tdx; state.widgets[id].y = s.y + tdy; }
         });
+        if (Object.keys(state.connections).length) events.emit('connections:render');
+        if (state.minimapVisible) events.emit('minimap:update');
       } else if (drag.type === 'draw' && drawBox) {
         drawBox.curWorld = screenToWorld(t.clientX - rect.left, t.clientY - rect.top);
         const x0 = Math.min(drawBox.startWorld.x, drawBox.curWorld.x), y0 = Math.min(drawBox.startWorld.y, drawBox.curWorld.y);
@@ -343,6 +349,7 @@ export function initInteraction() {
       const x1 = Math.max(drawBox.startWorld.x, drawBox.curWorld.x), y1 = Math.max(drawBox.startWorld.y, drawBox.curWorld.y);
       const sr = snapRect(x0, y0, x1 - x0, y1 - y0), min = MIN_DRAW[drawBox.type];
       const snapped = snapRect(sr.x, sr.y, Math.max(sr.w, min.w), Math.max(sr.h, min.h));
+      snapshotForUndo();
       const w = createWidget(drawBox.type, snapped.x, snapped.y); w.w = snapped.w; w.h = snapped.h;
       state.widgets[w.id] = w;
       events.emit('pending:add', w.id);
@@ -382,10 +389,10 @@ export function initInteraction() {
     if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
     
     // 읽기 전용 가드 (뷰어 동작을 위한 최소한의 단축키만 허용)
-    if (state.isReadOnly) {
+    if (isReadOnly) {
       const isCtrlKey = e.ctrlKey || e.metaKey;
       const allowedCtrlKeys = ['0', '9', '=', '-', 'f', 'F', 'm', 'M'];
-      const allowedSingleKeys = ['Escape', '?', 'h', 'H'];
+      const allowedSingleKeys = ['Escape', '?', 'h', 'H', 'v', 'V'];
       
       if (isCtrlKey && allowedCtrlKeys.includes(e.key)) {
         // 허용된 단축키 조합 통과
@@ -419,7 +426,9 @@ export function initInteraction() {
     if ((e.key === 'Delete' || e.key === 'Backspace') && state.selectedIds.size) { e.preventDefault(); snapshotForUndo(); [...state.selectedIds].forEach(deleteWidget); return; }
     if (e.key === 'Escape') { setSelected([]); events.emit('tool:set', 'select'); closeShareModal(); closeExportModal(); closeHelpModal(); closeCanvasPicker(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key === 'a') { e.preventDefault(); setSelected(Object.keys(state.widgets)); return; }
-    const tm = { 'v': 'select', 'h': 'hand', 'p': 'sketch', 't': 'memo', 's': 'spreadsheet', 'i': 'image', 'c': 'connect', 'e': 'eraser' };
+    // 툴바 표기(V/H/M/S/T/I)와 일치하는 도구 단축키 — Ctrl/Alt 조합(복사·붙여넣기 등)은 도구 전환에서 제외
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const tm = { 'v': 'select', 'h': 'hand', 'm': 'memo', 's': 'sketch', 't': 'spreadsheet', 'i': 'image' };
     if (tm[e.key.toLowerCase()]) { events.emit('tool:set', tm[e.key.toLowerCase()]); }
   });
 }

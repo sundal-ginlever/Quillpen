@@ -74,6 +74,9 @@ export let isSyncing = false;
 export let syncQueued = false;
 export let pendingChanges = new Set();
 export let pendingDeletes = new Set();
+// 삭제된 이미지 위젯의 Storage 파일 (위젯 id → 파일명). 즉시 지우지 않고
+// 다음 클라우드 동기화 시점에 처리해, Ctrl+Z로 위젯을 복원하면 파일도 살아있게 함
+export let pendingStorageDeletes = new Map();
 export let pendingCanvasMeta = false;
 
 export function markCanvasMetaDirty() {
@@ -102,7 +105,7 @@ export async function flushToCloud() {
     syncQueued = true;
     return;
   }
-  if (pendingChanges.size === 0 && pendingDeletes.size === 0 && !pendingCanvasMeta) {
+  if (pendingChanges.size === 0 && pendingDeletes.size === 0 && pendingStorageDeletes.size === 0 && !pendingCanvasMeta) {
     setSyncState('synced', '서버와 일치');
     return;
   }
@@ -140,7 +143,21 @@ export async function flushToCloud() {
       const { error } = await withTimeout(sb.from('q_widgets').upsert(rows, { onConflict: 'id' }));
       if (error) throw error;
     }
-    
+
+    // 3. 지연된 이미지 파일 삭제 처리 (Undo로 위젯이 복원되었으면 파일 삭제 취소)
+    if (pendingStorageDeletes.size > 0) {
+      const toRemove = [];
+      pendingStorageDeletes.forEach((fileName, wid) => {
+        if (state.widgets[wid]) { pendingStorageDeletes.delete(wid); return; }
+        toRemove.push([wid, fileName]);
+      });
+      if (toRemove.length > 0) {
+        const { error: rmError } = await withTimeout(sb.storage.from('quillpen-images').remove(toRemove.map(([, f]) => f)));
+        if (!rmError) toRemove.forEach(([wid]) => pendingStorageDeletes.delete(wid));
+        else console.error('Deferred image file removal failed', rmError);
+      }
+    }
+
     // Success: 비동기 통신이 이뤄지는 도중(await)에 새롭게 변경된 최신 좌표 데이터는 pendingChanges에서 지우지 않고 보존
     idsToPush.forEach(id => {
       const w = state.widgets[id];
@@ -249,6 +266,10 @@ export async function loadFromCloud() {
           pendingDeletes.clear();
           d.pendingDeletes.forEach(id => pendingDeletes.add(id));
         }
+        if (d.pendingStorageDeletes) {
+          pendingStorageDeletes.clear();
+          d.pendingStorageDeletes.forEach(([wid, f]) => pendingStorageDeletes.set(wid, f));
+        }
       }
     } catch(e) {}
 
@@ -355,12 +376,16 @@ export function subscribeRealtime() {
       const newCanvas = payload.new;
       if (newCanvas && newCanvas.settings && newCanvas.settings.connections) {
         state.connections = { ...state.connections, ...newCanvas.settings.connections };
+        // 로컬에서 명시적으로 삭제한 연결선이 원격 브로드캐스트로 되살아나지 않도록 필터링
+        if (state.deletedConnectionIds) {
+          state.deletedConnectionIds.forEach(cid => { delete state.connections[cid]; });
+        }
         events.emit('connections:render');
       }
     })
     .on('presence', { event: 'sync' }, () => {
-      const state = realtimeSub.presenceState();
-      const users = Object.values(state).flat();
+      const presenceData = realtimeSub.presenceState();
+      const users = Object.values(presenceData).flat();
       console.log('Active users:', users);
       // Future: Update UI with user cursors or list
     })
@@ -499,13 +524,15 @@ export function saveLocal() {
       const copy = { ...w };
       if (w.type === 'spreadsheet') {
         copy.boldCells = w.boldCells instanceof Set ? [...w.boldCells] : (w.boldCells || []);
-        copy.italicCells = w.italicCells instanceof Set ? [...w.italicCells] : (w.italicCells || []),
+        copy.italicCells = w.italicCells instanceof Set ? [...w.italicCells] : (w.italicCells || []);
         copy.luckyData = w.luckyData || null;
         copy.jdata = w.jdata || null;
         copy.jwidths = w.jwidths || null;
         copy.jstyle = w.jstyle || null;
         copy.jmerge = w.jmerge || null;
       }
+      // 런타임 전용 임시 속성(_baseJdata, _localDelta 등)은 저장 용량만 차지하므로 제외
+      Object.keys(copy).forEach(k => { if (k.startsWith('_')) delete copy[k]; });
       plain[w.id] = copy;
     });
     storage.setItem(getLiveKey(), JSON.stringify({
@@ -516,7 +543,8 @@ export function saveLocal() {
       connections: state.connections,
       deletedConnectionIds: Array.from(state.deletedConnectionIds || []), // 로컬 삭제 연결선 보존
       pendingDeletes: Array.from(pendingDeletes),
-      pendingChanges: Array.from(pendingChanges) // 로컬 수정 큐 보존
+      pendingChanges: Array.from(pendingChanges), // 로컬 수정 큐 보존
+      pendingStorageDeletes: Array.from(pendingStorageDeletes.entries()) // 보류된 이미지 파일 삭제 큐 보존
     }));
   } catch (e) {
     console.error('saveLocal failed', e);
@@ -542,6 +570,10 @@ export function loadLocal() {
     if (d.pendingChanges) {
       pendingChanges.clear();
       d.pendingChanges.forEach(id => pendingChanges.add(id));
+    }
+    if (d.pendingStorageDeletes) {
+      pendingStorageDeletes.clear();
+      d.pendingStorageDeletes.forEach(([wid, f]) => pendingStorageDeletes.set(wid, f));
     }
     if (d.deletedConnectionIds) {
       state.deletedConnectionIds = new Set(d.deletedConnectionIds);
@@ -572,9 +604,15 @@ export function loadLocal() {
   } catch (e) { console.error('loadLocal failed', e); }
 }
 
+// 연속 입력(메모 타이핑 등) 시 매 키 입력마다 전체 상태 딥클론(Undo 스냅샷)과
+// localStorage 직렬화가 일어나지 않도록 저장 작업을 디바운스 (입력이 멈추면 300ms 후 1회 실행)
+let saveDebounceTimer = null;
 export function save() {
-  events.emit('undo:snapshot');
-  saveLocal();
+  clearTimeout(saveDebounceTimer);
+  saveDebounceTimer = setTimeout(() => {
+    events.emit('undo:snapshot');
+    saveLocal();
+  }, 300);
   markCanvasMetaDirty();
 }
 

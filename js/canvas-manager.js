@@ -36,7 +36,7 @@ export async function createNewCanvas() {
   if (data) {
     clearCanvas();
     setCurrentCanvasId(data.id);
-    localStorage.setItem('inkcanvas_last_canvas_' + currentUser.id, data.id);
+    localStorage.setItem('quillpen_last_canvas_' + currentUser.id, data.id);
     closeCanvasPicker();
     setSyncState('synced', data.name);
   }
@@ -59,7 +59,7 @@ export async function switchCanvas(id, name) {
 
   clearCanvas();
   setCurrentCanvasId(id);
-  localStorage.setItem('inkcanvas_last_canvas_' + currentUser?.id, id);
+  localStorage.setItem('quillpen_last_canvas_' + currentUser?.id, id);
   await loadFromCloud();
   closeCanvasPicker();
   setSyncState('synced', name);

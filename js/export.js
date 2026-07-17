@@ -23,14 +23,18 @@ export function exportJSON() {
         copy.jwidths = w.jwidths || null;
         copy.jstyle = w.jstyle || null;
         copy.jmerge = w.jmerge || null;
+        if (copy.boldCells instanceof Set) copy.boldCells = [...copy.boldCells];
+        if (copy.italicCells instanceof Set) copy.italicCells = [...copy.italicCells];
       }
+      // 런타임 전용 임시 속성 제외
+      Object.keys(copy).forEach(k => { if (k.startsWith('_')) delete copy[k]; });
       return copy;
     }),
     connections: state.connections
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = `inkcanvas-${currentCanvasName}-${Date.now()}.json`; a.click(); URL.revokeObjectURL(a.href);
+  a.download = `quillpen-${currentCanvasName}-${Date.now()}.json`; a.click(); URL.revokeObjectURL(a.href);
   closeExportModal();
 }
 
@@ -133,7 +137,7 @@ export function exportCSV() {
   });
   const blob = new Blob([parts.join('\n\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = `inkcanvas-${currentCanvasName}-${Date.now()}.csv`; a.click(); URL.revokeObjectURL(a.href);
+  a.download = `quillpen-${currentCanvasName}-${Date.now()}.csv`; a.click(); URL.revokeObjectURL(a.href);
   closeExportModal();
 }
 
@@ -192,22 +196,41 @@ export function exportPNG() {
       if (w.type === 'image' && w._cachedImg) {
         drawImageWithFit(ctx, w._cachedImg, sx, sy + 32 * scale, sw, sh - 32 * scale, w.objectFit || 'contain');
       } else if (w.type === 'sketch' && w.strokes) {
+        // 지우개(destination-out)가 위젯 배경·그리드까지 뚫지 않도록 오프스크린 캔버스에서 합성 후 전사
+        const off = document.createElement('canvas');
+        off.width = Math.max(1, Math.ceil(sw));
+        off.height = Math.max(1, Math.ceil(sh - 40 * scale));
+        const octx = off.getContext('2d');
         w.strokes.forEach(stroke => {
           if (!stroke.points || stroke.points.length < 2) return;
-          ctx.beginPath();
           const isEraser = stroke.color === 'transparent';
-          ctx.globalCompositeOperation = isEraser ? 'destination-out' : 'source-over';
-          ctx.strokeStyle = isEraser ? 'rgba(0,0,0,1)' : stroke.color;
-          ctx.lineWidth = stroke.width * scale; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-          ctx.moveTo(sx + stroke.points[0].x * scale, sy + 40 * scale + stroke.points[0].y * scale);
-          stroke.points.forEach((pt, i) => {
-            if (i === 0) return;
-            const pv = stroke.points[i - 1];
-            ctx.quadraticCurveTo(sx + pv.x * scale, sy + 40 * scale + pv.y * scale, sx + (pv.x + pt.x) / 2 * scale, sy + 40 * scale + (pv.y + pt.y) / 2 * scale);
-          });
-          ctx.stroke();
-          ctx.globalCompositeOperation = 'source-over';
+          octx.globalCompositeOperation = isEraser ? 'destination-out' : 'source-over';
+          octx.strokeStyle = isEraser ? 'rgba(0,0,0,1)' : stroke.color;
+          octx.lineCap = 'round'; octx.lineJoin = 'round';
+          const hasPointWidths = stroke.points.some(p => p.w !== undefined);
+          if (hasPointWidths) {
+            for (let i = 1; i < stroke.points.length; i++) {
+              const p1 = stroke.points[i - 1], p2 = stroke.points[i];
+              octx.beginPath();
+              octx.lineWidth = (p2.w || p1.w || stroke.width) * scale;
+              octx.moveTo(p1.x * scale, p1.y * scale);
+              octx.lineTo(p2.x * scale, p2.y * scale);
+              octx.stroke();
+            }
+          } else {
+            octx.beginPath();
+            octx.lineWidth = stroke.width * scale;
+            octx.moveTo(stroke.points[0].x * scale, stroke.points[0].y * scale);
+            stroke.points.forEach((pt, i) => {
+              if (i === 0) return;
+              const pv = stroke.points[i - 1];
+              octx.quadraticCurveTo(pv.x * scale, pv.y * scale, (pv.x + pt.x) / 2 * scale, (pv.y + pt.y) / 2 * scale);
+            });
+            octx.stroke();
+          }
+          octx.globalCompositeOperation = 'source-over';
         });
+        ctx.drawImage(off, sx, sy + 40 * scale);
 
       } else if (w.type === 'spreadsheet' && w.jdata) {
         ctx.fillStyle = '#f1f5f9'; ctx.fillRect(sx, sy + 32 * scale, sw, sh - 32 * scale);
@@ -322,7 +345,7 @@ export function exportPNG() {
 
     cvs.toBlob(blob => {
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-      a.download = `inkcanvas-${currentCanvasName}-${Date.now()}.png`; a.click(); URL.revokeObjectURL(a.href);
+      a.download = `quillpen-${currentCanvasName}-${Date.now()}.png`; a.click(); URL.revokeObjectURL(a.href);
       widgets.forEach(w => delete w._cachedImg);
       if (window._appModules?.showUndoToast) window._appModules.showUndoToast('PNG 내보내기 완료');
     }, 'image/png');

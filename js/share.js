@@ -106,7 +106,7 @@ export async function renameCanvas(newName) {
   const { currentCanvasName, currentUser } = await import('./state.js');
   if (!newName || newName === currentCanvasName) return;
   setCurrentCanvasName(newName);
-  document.title = `inkcanvas — ${newName}`;
+  document.title = `Quillpen — ${newName}`;
   if (sb && currentUser && currentCanvasId && currentCanvasId !== 'local') {
     await sb.from('q_canvases').update({ name: newName }).eq('id', currentCanvasId);
   }

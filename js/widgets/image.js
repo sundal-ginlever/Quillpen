@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════
 // IMAGE WIDGET RENDERER
 // ══════════════════════════════════════════
-import { state, isReadOnly } from '../state.js';
+import { state, isReadOnly, currentCanvasId } from '../state.js';
 import { resizeHandleHTML, attachResizeHandle, sanitizeSVG } from '../utils.js';
 import { events } from '../events.js';
 import { updateWidget, deleteWidget } from './core.js';
@@ -32,7 +32,7 @@ export async function processImageFile(file, widgetId, onComplete) {
   };
 
   // Try to upload to Supabase if available
-  if (sb && state.currentCanvasId !== 'local') {
+  if (sb && currentCanvasId && currentCanvasId !== 'local') {
     try {
       const ext = file.name.split('.').pop() || 'png';
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${ext}`;
@@ -145,7 +145,8 @@ export function renderImage(w) {
   // Paste handler
   el.addEventListener('paste', e => {
     if (w.locked || isReadOnly) return;
-    const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+    const items = e.clipboardData?.items;
+    if (!items) return;
     for (const item of items) {
       if (item.type.indexOf('image') !== -1) {
         e.preventDefault();
