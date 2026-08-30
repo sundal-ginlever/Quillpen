@@ -9,6 +9,9 @@ export function journalLocalKey(userId) {
   return JOURNAL_LOCAL_PREFIX + (userId || 'local');
 }
 
+// How long a deleted block's "되돌리기" toast stays actionable.
+export const DELETE_UNDO_MS = 5000;
+
 export const BLOCK_TYPES = {
   TEXT: 'text',
   IMAGE: 'image',

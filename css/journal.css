@@ -142,11 +142,11 @@
 
 .journal-block-delete {
   position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
+  top: 2px;
+  right: 2px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
   border: none;
   background: transparent;
   color: var(--app-text-dim);
@@ -165,8 +165,9 @@
   line-height: 1.6;
   resize: none;
   outline: none;
-  overflow: hidden;
-  padding-right: 30px;
+  overflow-y: auto;
+  max-height: 400px;
+  padding-right: 46px;
   font-family: inherit;
   /* Text and scroll must always win — this block is never draggable,
      it's a plain flow item, so there is no move-gesture to conflict with. */
@@ -182,6 +183,30 @@
   background: var(--surface-hover);
 }
 .journal-block-image.uploading { opacity: 0.5; }
+
+.journal-undo-toast {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--app-text);
+  color: var(--app-bg);
+  font-size: 13px;
+}
+.journal-undo-toast[hidden] { display: none; }
+#journal-undo-toast-btn {
+  min-height: 44px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
 
 .journal-composer {
   flex-shrink: 0;
@@ -253,7 +278,11 @@
 #back-to-journal-btn {
   display: none;
   position: fixed;
-  top: 20px;
+  /* Bottom-left, clear of the top-centered canvas toolbar (css/main.css's
+     mobile rule spans it near full-width) and of the bottom-right mobile
+     FAB. Sits above #statusbar, which is a passive read-only display with
+     no click targets, so the visual overlap there doesn't block anything. */
+  bottom: 76px;
   left: 20px;
   z-index: 300;
   min-height: 44px;

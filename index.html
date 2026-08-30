@@ -238,7 +238,7 @@
 <div id="undo-toast"></div>
 
 <!-- ── DAILY JOURNAL (default mobile-first entry screen) ── -->
-<div id="journal-screen">
+<div id="journal-screen" hidden>
   <div class="journal-header">
     <button id="journal-free-pages-btn" class="journal-icon-btn" title="자유 페이지(기존 캔버스)">🎨<span class="journal-btn-label">자유 페이지</span></button>
     <div class="journal-date-nav">
@@ -253,6 +253,11 @@
 
   <div id="journal-blocks" class="journal-blocks"></div>
   <div id="journal-empty" class="journal-empty" style="display:none">아직 기록이 없어요. 아래에 오늘을 적어보세요 ✎</div>
+
+  <div id="journal-undo-toast" class="journal-undo-toast" hidden>
+    <span id="journal-undo-toast-msg"></span>
+    <button id="journal-undo-toast-btn" type="button">되돌리기</button>
+  </div>
 
   <div class="journal-composer">
     <input id="journal-image-input" type="file" accept="image/*" style="display:none"/>

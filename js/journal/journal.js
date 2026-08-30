@@ -12,7 +12,7 @@ import {
   journalState, todayStr, shiftDateStr, getOrCreateLocalPageEntry,
 } from './journal-state.js';
 import { getLocalPage, saveLocalPage, fetchCloudPage, ensureCloudPage, updateCloudPageTitle, cloudRowToBlock, insertCloudBlock, updateCloudBlock, deleteCloudBlock, uploadJournalImage } from './journal-storage.js';
-import { updateHeader, renderTitle, renderBlocks, scrollBlocksToBottom, attachAutoGrow, resetQuickText } from './journal-render.js';
+import { updateHeader, renderTitle, renderBlocks, scrollBlocksToBottom, attachAutoGrow, resetQuickText, showJournalUndoToast } from './journal-render.js';
 
 function isCloudAvailable() {
   return !!(sb && currentUser);
@@ -272,6 +272,15 @@ function handleTextChange(blockId, text) {
   textSaveTimer = setTimeout(() => pushPending(dateStr), 500);
 }
 
+// Delete is immediate and permanent (including the cloud row) — a merge that
+// deferred the cloud delete to let undo cancel it would let the block come
+// back from the cloud on the next loadDate (the merge has no tombstone
+// concept). Undo instead re-creates the block locally as a fresh pending
+// insert. Only the most recent delete is undoable; an older one that's
+// still "in flight" when a new delete happens has already fully committed,
+// so there's nothing left to do but drop its toast reference.
+let pendingDeleteUndo = null; // { dateStr, block, index }
+
 function handleDeleteBlock(blockId) {
   if (isReadOnly) return;
   const dateStr = journalState.selectedDate;
@@ -282,7 +291,34 @@ function handleDeleteBlock(blockId) {
   const [removed] = entry.blocks.splice(idx, 1);
   saveLocalPage(dateStr, entry);
   renderBlocks(entry.blocks, blockHandlers);
+
   if (isCloudAvailable() && removed._cloudExists) {
     deleteCloudBlock(blockId).catch(e => console.error('journal delete sync failed', e));
   }
+
+  pendingDeleteUndo = { dateStr, block: removed, index: idx };
+  showJournalUndoToast('삭제했습니다', undoDelete);
+}
+
+function undoDelete() {
+  if (!pendingDeleteUndo) return;
+  const { dateStr, block, index } = pendingDeleteUndo;
+  pendingDeleteUndo = null;
+
+  // Re-arm as a fresh, unsynced block. The id is safe to reuse — the row
+  // was actually deleted, not just hidden, so there's no PK left to collide
+  // with. createdAt is left untouched so P2-5's client-time ordering puts it
+  // back where it was instead of at the end of the list.
+  block.pending = true;
+  block._cloudExists = false;
+  block.updatedAt = Date.now();
+
+  const entry = getOrCreateLocalPageEntry(dateStr);
+  const insertAt = Math.min(index, entry.blocks.length);
+  entry.blocks.splice(insertAt, 0, block);
+  entry.blocks.sort((a, b) => a.createdAt - b.createdAt);
+  saveLocalPage(dateStr, entry);
+
+  if (journalState.selectedDate === dateStr) renderBlocks(entry.blocks, blockHandlers);
+  pushPending(dateStr);
 }

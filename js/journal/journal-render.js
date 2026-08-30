@@ -4,6 +4,7 @@
 // goes through textContent / .value so it can never be interpreted as HTML.
 // ══════════════════════════════════════════
 import { formatDateLabel, todayStr } from './journal-state.js';
+import { DELETE_UNDO_MS } from './journal-config.js';
 
 function autoGrow(textarea) {
   if (!textarea) return;
@@ -149,6 +150,38 @@ export function attachAutoGrow(textarea) {
   if (!textarea) return;
   autoGrow(textarea);
   textarea.addEventListener('input', () => autoGrow(textarea));
+}
+
+let undoToastHideTimer = null;
+
+// A journal-only toast with an actionable button — deliberately not the
+// shared #undo-toast (js/undo.js): that one is `pointer-events:none` and
+// used by ~17 canvas call sites, so bolting a button onto it would change
+// shared behavior. This is a plain flex item in the journal layout (sits
+// above the composer in normal document flow), not a floating overlay, so
+// it can never cover the composer or get hidden behind the keyboard.
+export function showJournalUndoToast(msg, onUndo) {
+  const toast = document.getElementById('journal-undo-toast');
+  const msgEl = document.getElementById('journal-undo-toast-msg');
+  const btn = document.getElementById('journal-undo-toast-btn');
+  if (!toast || !msgEl || !btn) return;
+
+  msgEl.textContent = msg;
+  toast.hidden = false;
+
+  const cleanup = () => { toast.hidden = true; btn.onclick = null; };
+  btn.onclick = () => { clearTimeout(undoToastHideTimer); cleanup(); onUndo(); };
+
+  clearTimeout(undoToastHideTimer);
+  undoToastHideTimer = setTimeout(cleanup, DELETE_UNDO_MS);
+}
+
+export function hideJournalUndoToast() {
+  clearTimeout(undoToastHideTimer);
+  const toast = document.getElementById('journal-undo-toast');
+  const btn = document.getElementById('journal-undo-toast-btn');
+  if (toast) toast.hidden = true;
+  if (btn) btn.onclick = null;
 }
 
 export function resetQuickText() {
