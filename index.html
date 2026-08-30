@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
 <meta name="theme-color" content="#6366f1"/>
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
@@ -15,6 +15,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="css/main.css"/>
+<link rel="stylesheet" href="css/journal.css"/>
 <!-- Jspreadsheet CE v4 & jSuites -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsuites/dist/jsuites.min.css" type="text/css" />
 <script src="https://cdn.jsdelivr.net/npm/jsuites/dist/jsuites.min.js"></script>
@@ -236,7 +237,47 @@
 <!-- ── PHASE 4: UNDO TOAST ── -->
 <div id="undo-toast"></div>
 
-<!-- ── MAIN CANVAS ── -->
+<!-- ── DAILY JOURNAL (default mobile-first entry screen) ── -->
+<div id="journal-screen">
+  <div class="journal-header">
+    <button id="journal-free-pages-btn" class="journal-icon-btn" title="자유 페이지(기존 캔버스)">🎨<span class="journal-btn-label">자유 페이지</span></button>
+    <div class="journal-date-nav">
+      <button id="journal-prev-btn" class="journal-nav-btn" title="이전 날짜" aria-label="이전 날짜">‹</button>
+      <button id="journal-date-label" class="journal-date-label" title="날짜 선택"></button>
+      <button id="journal-next-btn" class="journal-nav-btn" title="다음 날짜" aria-label="다음 날짜">›</button>
+    </div>
+    <button id="journal-today-btn" class="journal-icon-btn journal-today-btn" title="오늘로 이동">오늘</button>
+  </div>
+
+  <input id="journal-title-input" class="journal-title-input" type="text" placeholder="제목 (선택)" maxlength="120"/>
+
+  <div id="journal-blocks" class="journal-blocks"></div>
+  <div id="journal-empty" class="journal-empty" style="display:none">아직 기록이 없어요. 아래에 오늘을 적어보세요 ✎</div>
+
+  <div class="journal-composer">
+    <input id="journal-image-input" type="file" accept="image/*" style="display:none"/>
+    <button id="journal-add-image-btn" class="journal-icon-btn journal-composer-btn" title="이미지 추가" aria-label="이미지 추가">📷</button>
+    <textarea id="journal-quick-text" class="journal-quick-text" placeholder="지금 떠오르는 생각을 적어보세요..." rows="1"></textarea>
+    <button id="journal-add-text-btn" class="journal-icon-btn journal-composer-btn journal-send-btn" title="추가 (Enter)" aria-label="추가">➤</button>
+  </div>
+</div>
+
+<!-- ── JOURNAL DATE PICKER MODAL ── -->
+<div id="journal-date-modal" class="modal-backdrop" style="display:none">
+  <div class="modal-card journal-date-modal-card">
+    <div class="modal-title">
+      <span>날짜 선택</span>
+      <button class="modal-close" id="journal-date-modal-close">×</button>
+    </div>
+    <input id="journal-date-picker-input" type="date" class="journal-date-picker-input"/>
+    <button id="journal-date-picker-go" class="journal-date-picker-go">이동</button>
+  </div>
+</div>
+
+<!-- ── BACK TO JOURNAL (shown while free-page canvas is open) ── -->
+<button id="back-to-journal-btn" title="오늘의 기록으로 돌아가기">📔 오늘의 기록</button>
+
+<!-- ── MAIN CANVAS (free pages / legacy infinite canvas) ── -->
 <div id="root" style="display:none">
   <canvas id="grid-canvas" style="position:absolute;inset:0;pointer-events:none;z-index:0"></canvas>
   <div id="fit-flash"></div>

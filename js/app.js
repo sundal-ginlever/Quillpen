@@ -22,6 +22,8 @@ import { openGuideModal, closeGuideModal, moveGuide } from './guide.js';
 import { initPWA, triggerInstall } from './pwa.js';
 import { openHelpModal, closeHelpModal } from './help.js';
 import { events } from './events.js';
+import { initJournal, showJournalScreen, loadDate } from './journal/journal.js';
+import { journalState } from './journal/journal-state.js';
 
 // ══════════════════════════════════════════
 // EVENT LISTENERS
@@ -45,6 +47,7 @@ events.on('undo:snapshot', snapshotForUndo);
 events.on('tool:set', setTool);
 events.on('canvas:clear', clearCanvas);
 events.on('app:start', startCanvas);
+events.on('app:start', startJournalIfNeeded);
 events.on('app:load-local', loadLocal);
 events.on('app:schedule-push', schedulePush);
 
@@ -134,6 +137,32 @@ function startCanvas() {
 
 // Make startCanvas available via bridge
 window._appModules.startCanvas = startCanvas;
+
+// ══════════════════════════════════════════
+// DAILY JOURNAL — new default entry screen.
+// Fully independent of the canvas boot path above; only decides
+// whether to show itself once auth/demo boot reaches 'app:start'.
+// Share-link (read-only) mode never shows the journal.
+// ══════════════════════════════════════════
+// Wrapped defensively: a DOM/markup mismatch here (e.g. a stale service-worker
+// cache serving an old index.html alongside a new app.js) must never abort
+// this module's evaluation — that would also skip the boot IIFE below and
+// take down login/canvas along with the journal.
+try { initJournal(); } catch (e) { console.error('journal init failed', e); }
+
+function startJournalIfNeeded() {
+  try {
+    if (isReadOnly) {
+      const screen = document.getElementById('journal-screen');
+      if (screen) screen.hidden = true;
+      return;
+    }
+    showJournalScreen();
+    loadDate(journalState.selectedDate);
+  } catch (e) {
+    console.error('journal start failed', e);
+  }
+}
 
 // Apply theme
 document.documentElement.dataset.theme = state.theme;

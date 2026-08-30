@@ -1,0 +1,271 @@
+/* ══════════════════════════════════════════
+   DAILY JOURNAL — mobile-first quick capture screen
+   Namespaced entirely under #journal-screen / .journal-*
+   so it never collides with legacy canvas/widget styles.
+   ══════════════════════════════════════════ */
+
+#journal-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  background: var(--app-bg);
+  color: var(--app-text);
+}
+#journal-screen[hidden] { display: none; }
+
+.journal-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 56px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--header-bg);
+  backdrop-filter: blur(8px);
+}
+
+.journal-date-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
+}
+
+.journal-icon-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--surface);
+  color: var(--app-text);
+  border-radius: 12px;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.journal-icon-btn:active { background: var(--surface-hover); }
+
+.journal-btn-label { font-size: 12px; font-weight: 500; }
+@media (max-width: 480px) {
+  .journal-btn-label { display: none; }
+  .journal-icon-btn { padding: 0; width: 44px; }
+}
+
+.journal-today-btn {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  border-color: var(--accent-bg);
+}
+.journal-today-btn[hidden] { visibility: hidden; }
+
+.journal-nav-btn {
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: transparent;
+  color: var(--app-text-muted);
+  font-size: 22px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+.journal-nav-btn:active { background: var(--surface-hover); }
+
+.journal-date-label {
+  border: none;
+  background: transparent;
+  color: var(--app-text);
+  font-size: 14px;
+  font-weight: 600;
+  min-height: 44px;
+  padding: 0 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.journal-title-input {
+  flex-shrink: 0;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--surface);
+  color: var(--app-text);
+  font-size: 16px;
+  font-weight: 600;
+  padding: 12px 16px;
+  outline: none;
+}
+.journal-title-input:focus { border-bottom-color: var(--accent); }
+
+.journal-blocks {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 14px 12px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.journal-empty {
+  text-align: center;
+  color: var(--app-text-dim);
+  font-size: 13px;
+  padding: 40px 20px;
+}
+
+.journal-block {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: var(--shadow);
+}
+
+.journal-block-meta {
+  font-size: 10px;
+  color: var(--app-text-dim);
+  margin-bottom: 4px;
+}
+
+.journal-block-delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border: none;
+  background: transparent;
+  color: var(--app-text-dim);
+  font-size: 16px;
+  border-radius: 50%;
+  opacity: 0.6;
+}
+.journal-block-delete:active { background: var(--surface-hover); opacity: 1; }
+
+.journal-block-text-area {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--app-text);
+  font-size: 16px;
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+  overflow: hidden;
+  padding-right: 30px;
+  font-family: inherit;
+  /* Text and scroll must always win — this block is never draggable,
+     it's a plain flow item, so there is no move-gesture to conflict with. */
+  touch-action: manipulation;
+}
+
+.journal-block-image img {
+  display: block;
+  width: 100%;
+  max-height: 60vh;
+  object-fit: contain;
+  border-radius: 8px;
+  background: var(--surface-hover);
+}
+.journal-block-image.uploading { opacity: 0.5; }
+
+.journal-composer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border-color);
+  background: var(--header-bg);
+  backdrop-filter: blur(8px);
+}
+
+.journal-composer-btn {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border-radius: 50%;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.journal-send-btn {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.journal-send-btn:disabled { opacity: 0.4; }
+
+.journal-quick-text {
+  flex: 1;
+  min-height: 44px;
+  max-height: 140px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  padding: 11px 16px;
+  font-size: 16px;
+  line-height: 1.4;
+  background: var(--surface);
+  color: var(--app-text);
+  resize: none;
+  outline: none;
+}
+.journal-quick-text:focus { border-color: var(--accent); }
+
+.journal-date-modal-card { width: min(320px, 90vw); }
+.journal-date-picker-input {
+  width: 100%;
+  min-height: 44px;
+  font-size: 16px;
+  padding: 8px 10px;
+  border: 1.5px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--app-text);
+  margin: 14px 0;
+}
+.journal-date-picker-go {
+  width: 100%;
+  min-height: 44px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+#back-to-journal-btn {
+  display: none;
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 300;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 22px;
+  background: var(--header-bg);
+  backdrop-filter: blur(8px);
+  color: var(--app-text);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: var(--shadow);
+}
+#back-to-journal-btn.visible { display: flex; align-items: center; }
+.read-only #back-to-journal-btn { display: none !important; }

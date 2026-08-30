@@ -129,7 +129,71 @@ create trigger q_widgets_updated_at
 --   const { data } = await sb.rpc('get_shared_canvas', { p_token: shareId });
 
 -- ══════════════════════════════════════════════════
--- 9. 기존 테이블에서 마이그레이션 (이미 canvases/widgets가 있는 경우)
+-- 9. Daily Journal (일일 기록) — q_journal_pages / q_journal_blocks
+--    기존 q_canvases / q_widgets(자유 페이지)와 완전히 분리된 신규 테이블.
+--    Supabase 대시보드 → SQL Editor에서 실행하세요.
+-- ══════════════════════════════════════════════════
+
+-- 날짜별 일기 페이지. 사용자당 날짜 하나만 존재 (unique 제약)
+create table if not exists q_journal_pages (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid references auth.users not null,
+  entry_date  date not null,
+  title       text not null default '',
+  created_at  timestamptz default now(),
+  updated_at  timestamptz default now(),
+  unique (user_id, entry_date)
+);
+
+-- 페이지 안의 시간순 블록. id는 클라이언트(nanoid)에서 생성해 q_widgets와 동일한 upsert 패턴 사용
+create table if not exists q_journal_blocks (
+  id          text primary key,
+  page_id     uuid references q_journal_pages(id) on delete cascade not null,
+  user_id     uuid references auth.users not null,
+  type        text not null,             -- text | image | (future: audio, handwriting)
+  data        jsonb not null default '{}',
+  sort_order  int not null default 0,
+  created_at  timestamptz default now(),
+  updated_at  timestamptz default now()
+);
+
+-- 인덱스
+create index if not exists q_journal_pages_user_date_idx on q_journal_pages (user_id, entry_date);
+create index if not exists q_journal_blocks_page_id_idx  on q_journal_blocks (page_id);
+create index if not exists q_journal_blocks_user_id_idx  on q_journal_blocks (user_id);
+create index if not exists q_journal_blocks_created_idx  on q_journal_blocks (page_id, created_at);
+
+-- RLS 활성화
+alter table q_journal_pages  enable row level security;
+alter table q_journal_blocks enable row level security;
+
+-- 본인 소유 페이지/블록만 CRUD 가능 (공유 기능 없음 — 기존 공유 정책을 확장하지 않음)
+create policy "q_journal_pages: own" on q_journal_pages
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+create policy "q_journal_blocks: own" on q_journal_blocks
+  for all using (
+    auth.uid() = user_id
+    and exists (select 1 from q_journal_pages p where p.id = q_journal_blocks.page_id and p.user_id = auth.uid())
+  ) with check (
+    auth.uid() = user_id
+    and exists (select 1 from q_journal_pages p where p.id = q_journal_blocks.page_id and p.user_id = auth.uid())
+  );
+
+-- updated_at 자동 갱신 트리거 (기존 update_updated_at() 함수 재사용)
+create trigger q_journal_pages_updated_at
+  before update on q_journal_pages
+  for each row execute function update_updated_at();
+
+create trigger q_journal_blocks_updated_at
+  before update on q_journal_blocks
+  for each row execute function update_updated_at();
+
+-- Realtime은 이번 범위에서 필요 없음 (일기는 단일 사용자 시간순 기록이므로 폴링/온디맨드 로드로 충분)
+-- 이미지 첨부는 기존 'quillpen-images' Storage 버킷을 재사용합니다 (파일명 접두사 journal- 로 구분).
+
+-- ══════════════════════════════════════════════════
+-- 10. 기존 테이블에서 마이그레이션 (이미 canvases/widgets가 있는 경우)
 -- 아래를 Supabase SQL Editor에서 실행하세요.
 -- ══════════════════════════════════════════════════
 -- ALTER TABLE canvases RENAME TO q_canvases;
