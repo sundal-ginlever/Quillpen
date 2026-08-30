@@ -157,10 +157,13 @@ function startJournalIfNeeded() {
     if (isReadOnly) {
       const screen = document.getElementById('journal-screen');
       if (screen) screen.hidden = true;
-      // Memo board is only reachable from the journal header, but hide it
-      // defensively too — it must never be reachable on a shared read-only link.
+      // Memo board (and its detail overlay) are only reachable from the
+      // journal header, but hide them defensively too — neither must ever
+      // be reachable on a shared read-only link.
       const board = document.getElementById('memo-board-screen');
       if (board) board.hidden = true;
+      const detail = document.getElementById('mb-detail-screen');
+      if (detail) detail.hidden = true;
       return;
     }
     showJournalScreen();

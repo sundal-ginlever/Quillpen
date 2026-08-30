@@ -57,7 +57,27 @@ export function initMemoBoard() {
     if (memo) openMemoInCanvas(memo);
   });
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && isMemoDetailVisible()) closeMemoDetail();
+    if (!isMemoDetailVisible()) return;
+    if (e.key === 'Escape') { closeMemoDetail(); return; }
+    // aria-modal="true" implies focus stays inside — otherwise Tab leaks
+    // out to the board's search input/cards sitting underneath. Only 3
+    // focusable elements ever exist in this screen, so a plain wrap is enough.
+    if (e.key === 'Tab') {
+      const focusables = [
+        document.getElementById('mb-detail-close-btn'),
+        document.getElementById('mb-detail-copy-btn'),
+        document.getElementById('mb-detail-open-btn'),
+      ].filter(Boolean);
+      if (focusables.length === 0) return;
+      const first = focusables[0], last = focusables[focusables.length - 1];
+      const atEdge = e.shiftKey
+        ? (document.activeElement === first || !focusables.includes(document.activeElement))
+        : (document.activeElement === last || !focusables.includes(document.activeElement));
+      if (atEdge) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      }
+    }
   });
 }
 
@@ -252,7 +272,8 @@ function openMemoDetail(memo) {
 
   detailReturnFocusEl = document.activeElement;
   screen.hidden = false;
-  document.getElementById('mb-detail-body').scrollTop = 0;
+  const bodyEl = document.getElementById('mb-detail-body');
+  if (bodyEl) bodyEl.scrollTop = 0;
   document.getElementById('mb-detail-close-btn')?.focus();
 }
 
@@ -279,6 +300,14 @@ export function isMemoDetailVisible() {
 function copyMemoDetail() {
   if (!detailMemo) return;
   const text = detailMemo.title ? `${detailMemo.title}\n\n${detailMemo.content}` : detailMemo.content;
+
+  // An empty memo would otherwise call writeText('') — that "succeeds",
+  // showing "복사했습니다" while actually wiping out whatever the user
+  // already had on their clipboard, with no way to undo it.
+  if (!text) {
+    showUndoToast('복사할 내용이 없습니다.');
+    return;
+  }
 
   // navigator.clipboard only exists in a secure context (https/localhost).
   // No execCommand('copy') fallback: it needs a live off-screen textarea
