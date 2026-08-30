@@ -67,7 +67,7 @@ export async function fetchCloudPage(dateStr) {
     .from('q_journal_blocks')
     .select('*')
     .eq('page_id', page.id)
-    .order('created_at', { ascending: true });
+    .order('sort_order', { ascending: true });
   // A failed block fetch must not be treated as "this page has no blocks" —
   // the caller (loadDate) needs to tell "empty" apart from "unknown" so it
   // doesn't merge a truncated cloud result over locally-synced blocks.
@@ -101,9 +101,13 @@ export function cloudRowToBlock(row) {
   return {
     id: row.id,
     type: row.type,
-    createdAt: new Date(row.created_at).getTime(),
+    // sort_order stores the client-side creation timestamp (see
+    // insertCloudBlock) — that's the authoritative ordering, since the
+    // server's own created_at reflects when the INSERT reached the DB, which
+    // can lag well behind creation time for a block that took a while to
+    // upload (e.g. an image). Only legacy rows without it fall back.
+    createdAt: row.sort_order || new Date(row.created_at).getTime(),
     updatedAt: new Date(row.updated_at).getTime(),
-    sortOrder: row.sort_order || 0,
     ...row.data,
   };
 }
@@ -122,7 +126,8 @@ export async function insertCloudBlock(pageId, block) {
     user_id: currentUser.id,
     type: block.type,
     data: blockData(block),
-    sort_order: block.sortOrder || 0,
+    // Client-side creation time, not insertion order — see cloudRowToBlock.
+    sort_order: block.createdAt,
   });
   if (error) { console.error('insertCloudBlock error', error); return false; }
   return true;
