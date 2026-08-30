@@ -6,7 +6,16 @@
 
 #journal-screen {
   position: fixed;
-  inset: 0;
+  left: 0;
+  right: 0;
+  /* --journal-top/--journal-height are set from window.visualViewport by
+     js/journal/journal-viewport.js while this screen is visible, so the
+     screen tracks the real visible area when the on-screen keyboard opens.
+     Falls back to a plain full-height screen (dvh, then vh) when
+     visualViewport isn't available or hasn't run yet. */
+  top: var(--journal-top, 0px);
+  height: var(--journal-height, 100vh);
+  height: var(--journal-height, 100dvh);
   z-index: 2000;
   display: flex;
   flex-direction: column;

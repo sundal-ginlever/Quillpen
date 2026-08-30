@@ -13,6 +13,7 @@ import {
 } from './journal-state.js';
 import { getLocalPage, saveLocalPage, fetchCloudPage, ensureCloudPage, updateCloudPageTitle, cloudRowToBlock, insertCloudBlock, updateCloudBlock, deleteCloudBlock, uploadJournalImage } from './journal-storage.js';
 import { updateHeader, renderTitle, renderBlocks, scrollBlocksToBottom, attachAutoGrow, resetQuickText, showJournalUndoToast } from './journal-render.js';
+import { enableJournalViewportTracking, disableJournalViewportTracking } from './journal-viewport.js';
 
 function isCloudAvailable() {
   return !!(sb && currentUser);
@@ -56,6 +57,9 @@ export function initJournal() {
 
   const quickText = document.getElementById('journal-quick-text');
   attachAutoGrow(quickText);
+  // Focus fires before the keyboard-open viewport resize lands, so the
+  // latest block would otherwise sit under the keyboard for a moment.
+  quickText?.addEventListener('focus', () => scrollBlocksToBottom());
   quickText?.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -84,16 +88,28 @@ function submitQuickText() {
   resetQuickText();
 }
 
+export function isJournalVisible() {
+  return document.getElementById('journal-screen')?.hidden === false;
+}
+
 export function showJournalScreen() {
   const screen = document.getElementById('journal-screen');
   if (screen) screen.hidden = false;
   document.getElementById('back-to-journal-btn')?.classList.remove('visible');
+  // Undo the free-pages reveal: with #root back at display:none, a canvas
+  // widget's z-index (which can grow arbitrarily via bringToFront, and
+  // isn't scoped into its own stacking context under #root) can never end
+  // up rendering above the journal screen.
+  const root = document.getElementById('root');
+  if (root) root.style.display = 'none';
+  enableJournalViewportTracking(scrollBlocksToBottom);
 }
 
 export function hideJournalScreenForFreePages() {
   const screen = document.getElementById('journal-screen');
   if (screen) screen.hidden = true;
   document.getElementById('back-to-journal-btn')?.classList.add('visible');
+  disableJournalViewportTracking();
 }
 
 function openFreePages() {
