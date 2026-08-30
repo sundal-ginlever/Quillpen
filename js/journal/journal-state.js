@@ -26,15 +26,20 @@ export function formatDateLabel(dateStr) {
   return `${y}년 ${m}월 ${d}일 (${weekday})`;
 }
 
-// Header display omits the year — at 390px, with the free-pages/memo-board
-// icon buttons on the left, the full label (formatDateLabel) truncates mid
-// day-number and becomes ambiguous (e.g. "2026년 8월 3…"). The full date is
-// still available as this button's title/tooltip.
+// Header display drops the year when it's the current one — at 390px, with
+// the free-pages/memo-board icon buttons on the left, the full label
+// (formatDateLabel) truncates mid day-number and becomes ambiguous (e.g.
+// "2026년 8월 3…"), and a `title` tooltip can't be reached on a touch
+// screen, so the year can't just be hidden outright when browsing into a
+// past year — that's exactly the case where knowing the year matters most.
+// Falls back to a compact numeric year form (still narrower than the full
+// Korean label) only when the date isn't in the current year.
 export function formatDateLabelShort(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   const dt = new Date(y, m - 1, d);
   const weekday = ['일', '월', '화', '수', '목', '금', '토'][dt.getDay()];
-  return `${m}월 ${d}일 (${weekday})`;
+  if (y === new Date().getFullYear()) return `${m}월 ${d}일 (${weekday})`;
+  return `${y}.${m}.${d} (${weekday})`;
 }
 
 export const journalState = {

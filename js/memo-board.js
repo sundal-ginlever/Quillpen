@@ -6,14 +6,18 @@
 // deleting, or moving memos here is explicitly out of scope — the local
 // save/undo/sync queues in js/sync.js and js/canvas-manager.js own that,
 // and mutating a memo through a second code path here would race them and
-// risk overwriting a newer edit. This module only ever reads state.widgets
+// risk overwriting a newer edit. That includes bringToFront(): it looks
+// read-only but it bumps zIndex, queues a pending change, and (via the
+// updated_at trigger) would silently turn this board's "most recently
+// modified" sort into "most recently opened" — so it's deliberately not
+// used, see focusMemoWidget(). This module only ever reads state.widgets
 // and the DB, plus calls the existing switchCanvas()/setSelected()/
-// bringToFront() to jump to the real widget for editing.
+// zoomToRect() to jump to the real widget for editing.
 // ══════════════════════════════════════════
 import { state, currentUser, currentCanvasId, currentCanvasName, isReadOnly } from './state.js';
 import { sb } from './supabase.js';
 import { switchCanvas } from './canvas-manager.js';
-import { setSelected, bringToFront } from './widgets/core.js';
+import { setSelected } from './widgets/core.js';
 import { zoomToRect } from './camera.js';
 import { showUndoToast } from './undo.js';
 import { hideJournalScreenForFreePages } from './journal/journal.js';
@@ -204,7 +208,14 @@ async function openMemoInCanvas(memo) {
     if (currentCanvasId !== memo.canvasId) {
       // switchCanvas already saves/flushes the current page and confirms
       // with the user if anything is still unsynced — unchanged safety net.
+      // It resolves normally (not a throw) if the user cancels that confirm,
+      // so we have to check whether the switch actually happened.
       await switchCanvas(memo.canvasId, memo.canvasName);
+      if (currentCanvasId !== memo.canvasId) {
+        openMemoBoard();
+        showUndoToast('페이지 전환이 취소되었습니다.');
+        return;
+      }
     }
     const root = document.getElementById('root');
     if (root) root.style.display = 'block';
@@ -222,8 +233,15 @@ function focusMemoWidget(widgetId) {
     showUndoToast('메모를 찾을 수 없습니다. 삭제되었을 수 있습니다.');
     return;
   }
+  // Deliberately not calling bringToFront() here: opening a memo to look at
+  // it is a read, not an edit, but bringToFront bumps zIndex, marks the
+  // widget pending, and touches its updated_at via the DB trigger. That
+  // would make the board's "most recently modified" sort silently drift
+  // into "most recently opened", and could trip canvas-manager.js's
+  // unsynced-changes confirm on the next switch for a memo nobody actually
+  // edited. setSelected + zoomToRect already bring it to the center of the
+  // screen with a selection outline, which is all this needs to do.
   setSelected([widgetId]);
-  bringToFront(widgetId);
   zoomToRect({ x: w.x, y: w.y, w: w.w, h: w.h });
   // Give the DOM element (and the camera pan) a beat to settle before
   // stealing focus into its textarea.
