@@ -1,4 +1,4 @@
-const CACHE_NAME = 'quillpen-cache-v5';
+const CACHE_NAME = 'quillpen-cache-v6';
 const DYNAMIC_CACHE_NAME = 'quillpen-dynamic-v1';
 const URLS_TO_CACHE = [
   '/',

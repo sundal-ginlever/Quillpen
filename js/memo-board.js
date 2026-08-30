@@ -29,6 +29,8 @@ function isCloudAvailable() {
 let cachedMemos = [];
 let searchQuery = '';
 let initialized = false;
+let detailMemo = null;
+let detailReturnFocusEl = null;
 
 export function initMemoBoard() {
   if (initialized) return;
@@ -38,9 +40,24 @@ export function initMemoBoard() {
   document.getElementById('mb-back-btn')?.addEventListener('click', closeMemoBoard);
   document.getElementById('mb-refresh-btn')?.addEventListener('click', () => loadMemos());
   document.getElementById('mb-retry-btn')?.addEventListener('click', () => loadMemos());
+  // Search text and #mb-list's scroll position live only in the DOM (the
+  // input's value, the list container's scrollTop) — the detail screen
+  // never touches either, so re-showing the board after closing detail
+  // restores both for free.
   document.getElementById('mb-search-input')?.addEventListener('input', e => {
     searchQuery = e.target.value;
     renderList();
+  });
+
+  document.getElementById('mb-detail-close-btn')?.addEventListener('click', closeMemoDetail);
+  document.getElementById('mb-detail-copy-btn')?.addEventListener('click', copyMemoDetail);
+  document.getElementById('mb-detail-open-btn')?.addEventListener('click', () => {
+    const memo = detailMemo;
+    closeMemoDetail();
+    if (memo) openMemoInCanvas(memo);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && isMemoDetailVisible()) closeMemoDetail();
   });
 }
 
@@ -52,6 +69,7 @@ export function openMemoBoard() {
 }
 
 export function closeMemoBoard() {
+  closeMemoDetail(); // defensive: nothing currently reaches this with detail open, but never leave it dangling
   const screen = document.getElementById('memo-board-screen');
   if (screen) screen.hidden = true;
 }
@@ -168,6 +186,16 @@ function buildCard(memo) {
   card.className = 'mb-card';
   card.style.setProperty('--mb-card-color', memo.color);
 
+  // Meta/title/preview live inside their own <button>, separate from the
+  // "원본에서 열기" button below — a real button gets Enter/Space handling
+  // and focus styling for free, and being a sibling (not a wrapper) means
+  // the two tap targets can never overlap.
+  const touchArea = document.createElement('button');
+  touchArea.type = 'button';
+  touchArea.className = 'mb-card-touch';
+  touchArea.setAttribute('aria-label', '메모 전체 보기: ' + (memo.title || '제목 없는 메모'));
+  touchArea.addEventListener('click', () => openMemoDetail(memo));
+
   const meta = document.createElement('div');
   meta.className = 'mb-card-meta';
   const pageName = document.createElement('span');
@@ -178,19 +206,21 @@ function buildCard(memo) {
   time.textContent = formatUpdatedAt(memo.updatedAt);
   meta.appendChild(pageName);
   meta.appendChild(time);
-  card.appendChild(meta);
+  touchArea.appendChild(meta);
 
   if (memo.title) {
     const titleEl = document.createElement('div');
     titleEl.className = 'mb-card-title';
     titleEl.textContent = memo.title;
-    card.appendChild(titleEl);
+    touchArea.appendChild(titleEl);
   }
 
   const preview = document.createElement('div');
   preview.className = 'mb-card-preview';
   preview.textContent = memo.content || '(내용 없음)';
-  card.appendChild(preview);
+  touchArea.appendChild(preview);
+
+  card.appendChild(touchArea);
 
   const openBtn = document.createElement('button');
   openBtn.type = 'button';
@@ -200,6 +230,71 @@ function buildCard(memo) {
   card.appendChild(openBtn);
 
   return card;
+}
+
+function openMemoDetail(memo) {
+  const screen = document.getElementById('mb-detail-screen');
+  const pageEl = document.getElementById('mb-detail-page');
+  const timeEl = document.getElementById('mb-detail-time');
+  const titleEl = document.getElementById('mb-detail-title');
+  const contentEl = document.getElementById('mb-detail-content');
+  if (!screen || !pageEl || !timeEl || !titleEl || !contentEl) return;
+
+  detailMemo = memo;
+  // All user-authored fields go through textContent — same rule as the
+  // card. No length/line clamp here: this screen exists specifically to
+  // show the full body the card's 4-line preview cuts off.
+  pageEl.textContent = memo.canvasName;
+  timeEl.textContent = formatUpdatedAt(memo.updatedAt);
+  titleEl.textContent = memo.title || '제목 없는 메모';
+  contentEl.textContent = memo.content || '(내용 없음)';
+  screen.style.setProperty('--mb-card-color', memo.color);
+
+  detailReturnFocusEl = document.activeElement;
+  screen.hidden = false;
+  document.getElementById('mb-detail-body').scrollTop = 0;
+  document.getElementById('mb-detail-close-btn')?.focus();
+}
+
+function closeMemoDetail() {
+  const screen = document.getElementById('mb-detail-screen');
+  if (screen) screen.hidden = true;
+  detailMemo = null;
+  if (detailReturnFocusEl && document.contains(detailReturnFocusEl)) {
+    detailReturnFocusEl.focus();
+  }
+  detailReturnFocusEl = null;
+}
+
+export function isMemoDetailVisible() {
+  return document.getElementById('mb-detail-screen')?.hidden === false;
+}
+
+// Copy is read-only: it only ever reads detailMemo's own title/content
+// (the original strings held in cachedMemos, not anything re-derived from
+// the DOM — the card/detail rendering clamps and reflows text, so reading
+// back from an element could hand back something subtly different from
+// what's actually stored) and calls the Clipboard API. No DB call, no
+// state.widgets write, nothing that could affect updated_at or sort order.
+function copyMemoDetail() {
+  if (!detailMemo) return;
+  const text = detailMemo.title ? `${detailMemo.title}\n\n${detailMemo.content}` : detailMemo.content;
+
+  // navigator.clipboard only exists in a secure context (https/localhost).
+  // No execCommand('copy') fallback: it needs a live off-screen textarea
+  // with select()/setSelectionRange() and behaves inconsistently on iOS,
+  // and this app is served over https in production — not worth the
+  // complexity for the one non-secure-context edge case.
+  if (!navigator.clipboard?.writeText) {
+    showUndoToast('이 브라우저에서는 복사를 지원하지 않습니다.');
+    return;
+  }
+  // Called synchronously inside the click handler, with nothing awaited
+  // first — iOS Safari only allows writeText() within the user-gesture
+  // call stack itself; an earlier await breaks that and it fails silently.
+  navigator.clipboard.writeText(text)
+    .then(() => showUndoToast('메모를 복사했습니다.'))
+    .catch(() => showUndoToast('복사에 실패했습니다.'));
 }
 
 async function openMemoInCanvas(memo) {

@@ -24,7 +24,7 @@ import { openHelpModal, closeHelpModal } from './help.js';
 import { events } from './events.js';
 import { initJournal, showJournalScreen, loadDate, isJournalVisible } from './journal/journal.js';
 import { journalState } from './journal/journal-state.js';
-import { initMemoBoard, isMemoBoardVisible } from './memo-board.js';
+import { initMemoBoard, isMemoBoardVisible, isMemoDetailVisible } from './memo-board.js';
 
 // ══════════════════════════════════════════
 // EVENT LISTENERS
@@ -210,7 +210,7 @@ document.addEventListener('dragover', e => {
 });
 document.addEventListener('drop', e => {
   if (isReadOnly) return;
-  if (isJournalVisible() || isMemoBoardVisible()) return; // canvas is hidden behind the journal/memo-board screen
+  if (isJournalVisible() || isMemoBoardVisible() || isMemoDetailVisible()) return; // canvas is hidden behind the journal/memo-board/detail screen
   if (e.target.closest('[data-widget-id]')) return;
   const file = e.dataTransfer?.files[0];
   if (!file || !file.type.startsWith('image/')) return;
@@ -234,7 +234,7 @@ document.addEventListener('drop', e => {
 // Clipboard paste handler
 document.addEventListener('paste', e => {
   if (isReadOnly) return;
-  if (isJournalVisible() || isMemoBoardVisible()) return; // canvas is hidden behind the journal/memo-board screen
+  if (isJournalVisible() || isMemoBoardVisible() || isMemoDetailVisible()) return; // canvas is hidden behind the journal/memo-board/detail screen
   const t = e.target;
   if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
   const items = e.clipboardData?.items;

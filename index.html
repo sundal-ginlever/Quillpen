@@ -289,6 +289,26 @@
   </div>
 </div>
 
+<!-- ── MEMO DETAIL (full-content read-only view of a single memo) ── -->
+<div id="mb-detail-screen" class="mb-detail-screen" hidden role="dialog" aria-modal="true" aria-labelledby="mb-detail-title">
+  <div class="mb-detail-header">
+    <button id="mb-detail-close-btn" class="mb-icon-btn" aria-label="닫기">←</button>
+    <span class="mb-title">메모</span>
+    <button id="mb-detail-copy-btn" class="mb-icon-btn" aria-label="메모 복사" title="복사">복사</button>
+  </div>
+  <div id="mb-detail-body" class="mb-detail-body">
+    <div class="mb-detail-meta">
+      <span id="mb-detail-page" class="mb-card-page"></span>
+      <span id="mb-detail-time" class="mb-card-time"></span>
+    </div>
+    <h2 id="mb-detail-title" class="mb-detail-title"></h2>
+    <div id="mb-detail-content" class="mb-detail-content"></div>
+  </div>
+  <div class="mb-detail-footer">
+    <button id="mb-detail-open-btn" class="mb-card-open-btn" type="button">원본에서 열기</button>
+  </div>
+</div>
+
 <!-- ── JOURNAL DATE PICKER MODAL ── -->
 <div id="journal-date-modal" class="modal-backdrop" style="display:none">
   <div class="modal-card journal-date-modal-card">

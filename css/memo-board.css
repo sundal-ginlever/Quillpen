@@ -122,6 +122,21 @@
   box-shadow: var(--shadow);
 }
 
+/* Wraps meta+title+preview only — the separate "원본에서 열기" button below
+   it is a sibling, not a descendant, so their tap targets never overlap. */
+.mb-card-touch {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.mb-card-touch:active { opacity: 0.85; }
+
 .mb-card-meta {
   display: flex;
   align-items: center;
@@ -177,3 +192,77 @@
   font-weight: 600;
 }
 .mb-card-open-btn:active { opacity: 0.8; }
+
+/* ── MEMO DETAIL — full-content read-only view ──
+   A separate full-bleed overlay above the board (not nested inside
+   #memo-board-screen), so it never depends on the board's own hidden state
+   and its opaque background alone is enough to block taps/scroll reaching
+   the board or journal underneath — no extra scroll-lock JS needed. */
+.mb-detail-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 2300; /* above #memo-board-screen (2200), below modals (8000+) */
+  display: flex;
+  flex-direction: column;
+  background: var(--app-bg);
+  color: var(--app-text);
+  border-top: 4px solid var(--mb-card-color, var(--accent));
+}
+.mb-detail-screen[hidden] { display: none; }
+
+.mb-detail-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 56px;
+  padding: 8px 10px;
+  padding-top: max(8px, env(safe-area-inset-top, 0px));
+  border-bottom: 1px solid var(--border-color);
+  background: var(--header-bg);
+  backdrop-filter: blur(8px);
+}
+
+.mb-detail-body {
+  flex: 1;
+  min-height: 0; /* required for the child overflow-y:auto to actually scroll inside a flex column */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 16px;
+}
+
+.mb-detail-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.mb-detail-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--app-text);
+  margin-bottom: 12px;
+  word-break: break-word;
+}
+
+.mb-detail-content {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--app-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mb-detail-footer {
+  flex-shrink: 0;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border-color);
+  background: var(--header-bg);
+  backdrop-filter: blur(8px);
+}
+.mb-detail-footer .mb-card-open-btn { margin-top: 0; }
