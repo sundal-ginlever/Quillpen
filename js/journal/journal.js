@@ -11,7 +11,7 @@ import { showUndoToast } from '../undo.js';
 import {
   journalState, todayStr, shiftDateStr, getOrCreateLocalPageEntry,
 } from './journal-state.js';
-import { getLocalPage, saveLocalPage, fetchCloudPage, ensureCloudPage, updateCloudPageTitle, cloudRowToBlock, insertCloudBlock, updateCloudBlock, deleteCloudBlock, uploadJournalImage } from './journal-storage.js';
+import { getLocalPage, saveLocalPage, fetchCloudPage, ensureCloudPage, updateCloudPageTitle, cloudRowToBlock, insertCloudBlock, updateCloudBlock, deleteCloudBlock, uploadJournalImage, migrateLocalJournalToUser } from './journal-storage.js';
 import { updateHeader, renderTitle, renderBlocks, scrollBlocksToBottom, attachAutoGrow, resetQuickText, showJournalUndoToast } from './journal-render.js';
 import { enableJournalViewportTracking, disableJournalViewportTracking } from './journal-viewport.js';
 
@@ -130,6 +130,7 @@ function closeDateModal() {
 }
 
 export async function loadDate(dateStr) {
+  migrateLocalJournalToUser();
   journalState.selectedDate = dateStr;
   const local = getLocalPage(dateStr) || { pageId: null, title: '', blocks: [] };
   journalState.pagesByDate[dateStr] = local;

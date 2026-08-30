@@ -39,6 +39,40 @@ function writeAllLocal(data) {
   }
 }
 
+const MIGRATION_FLAG_PREFIX = 'qp_journal_migrated_';
+
+// One-time move of anonymous-session journal entries (qp_journal_v1_local)
+// into the logged-in user's own key (qp_journal_v1_<uid>) the first time
+// that user logs in on this browser — otherwise anything written before
+// login (offline-first local mode) would be orphaned under the 'local' key
+// forever. Only fills in dates the user's own key doesn't already have;
+// a date present in both is left alone (the account's own cloud-backed
+// data wins) rather than attempting a block-level merge, which is out of
+// scope here.
+export function migrateLocalJournalToUser() {
+  if (!currentUser) return;
+  const flagKey = MIGRATION_FLAG_PREFIX + currentUser.id;
+  if (localStorage.getItem(flagKey)) return;
+  try {
+    const anonKey = journalLocalKey(null);
+    const anonRaw = localStorage.getItem(anonKey);
+    if (anonRaw) {
+      const anonData = JSON.parse(anonRaw) || {};
+      const userKey = journalLocalKey(currentUser.id);
+      const userData = JSON.parse(localStorage.getItem(userKey) || '{}') || {};
+      let changed = false;
+      Object.keys(anonData).forEach(dateStr => {
+        if (!userData[dateStr]) { userData[dateStr] = anonData[dateStr]; changed = true; }
+      });
+      if (changed) localStorage.setItem(userKey, JSON.stringify(userData));
+      localStorage.removeItem(anonKey);
+    }
+  } catch (e) {
+    console.error('journal local->user migration failed', e);
+  }
+  localStorage.setItem(flagKey, '1');
+}
+
 export function getLocalPage(dateStr) {
   const all = readAllLocal();
   return all[dateStr] || null;

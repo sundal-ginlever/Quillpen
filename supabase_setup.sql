@@ -131,7 +131,12 @@ create trigger q_widgets_updated_at
 -- ══════════════════════════════════════════════════
 -- 9. Daily Journal (일일 기록) — q_journal_pages / q_journal_blocks
 --    기존 q_canvases / q_widgets(자유 페이지)와 완전히 분리된 신규 테이블.
---    Supabase 대시보드 → SQL Editor에서 실행하세요.
+--
+--    ⚠️ 반드시 이 섹션 9만 따로 선택해서 Supabase 대시보드 → SQL Editor에서
+--    실행하세요. 파일 전체를 다시 실행하면 섹션 7의 `create trigger ...`가
+--    "already exists" 오류를 내며 트랜잭션 전체가 롤백됩니다(섹션 1~8은 이미
+--    적용되어 있다고 가정). 섹션 9 자체는 drop-if-exists로 멱등하게 작성되어
+--    있어 여러 번 재실행해도 안전합니다.
 -- ══════════════════════════════════════════════════
 
 -- 날짜별 일기 페이지. 사용자당 날짜 하나만 존재 (unique 제약)
@@ -168,23 +173,32 @@ alter table q_journal_pages  enable row level security;
 alter table q_journal_blocks enable row level security;
 
 -- 본인 소유 페이지/블록만 CRUD 가능 (공유 기능 없음 — 기존 공유 정책을 확장하지 않음)
+-- (select auth.uid())로 감싸서 행마다 재평가되지 않고 쿼리당 1회만 평가되게 함(Postgres
+-- initplan 최적화). exists(...) 절 자체는 "내 블록을 남의 페이지에 붙이기"를 막는 정당한
+-- 방어이므로 그대로 유지.
+drop policy if exists "q_journal_pages: own" on q_journal_pages;
 create policy "q_journal_pages: own" on q_journal_pages
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+  for all using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 
+drop policy if exists "q_journal_blocks: own" on q_journal_blocks;
 create policy "q_journal_blocks: own" on q_journal_blocks
   for all using (
-    auth.uid() = user_id
-    and exists (select 1 from q_journal_pages p where p.id = q_journal_blocks.page_id and p.user_id = auth.uid())
+    (select auth.uid()) = user_id
+    and exists (select 1 from q_journal_pages p where p.id = q_journal_blocks.page_id and p.user_id = (select auth.uid()))
   ) with check (
-    auth.uid() = user_id
-    and exists (select 1 from q_journal_pages p where p.id = q_journal_blocks.page_id and p.user_id = auth.uid())
+    (select auth.uid()) = user_id
+    and exists (select 1 from q_journal_pages p where p.id = q_journal_blocks.page_id and p.user_id = (select auth.uid()))
   );
 
 -- updated_at 자동 갱신 트리거 (기존 update_updated_at() 함수 재사용)
+-- drop 후 재생성: 섹션 9만 다시 실행해도(마이그레이션 재적용) "already exists"로
+-- 트랜잭션 전체가 롤백되지 않도록 멱등성 확보.
+drop trigger if exists q_journal_pages_updated_at on q_journal_pages;
 create trigger q_journal_pages_updated_at
   before update on q_journal_pages
   for each row execute function update_updated_at();
 
+drop trigger if exists q_journal_blocks_updated_at on q_journal_blocks;
 create trigger q_journal_blocks_updated_at
   before update on q_journal_blocks
   for each row execute function update_updated_at();
