@@ -157,10 +157,16 @@ create table if not exists q_journal_blocks (
   user_id     uuid references auth.users not null,
   type        text not null,             -- text | image | (future: audio, handwriting)
   data        jsonb not null default '{}',
-  sort_order  int not null default 0,
+  sort_order  bigint not null default 0, -- client-side Date.now() ms; int4 overflows on this (max ~2.1e9, Date.now() ~1.7e12)
   created_at  timestamptz default now(),
   updated_at  timestamptz default now()
 );
+
+-- `create table if not exists` above does NOT retype an existing column —
+-- required for any environment that already ran section 9 with the old
+-- `int` sort_order (which overflows on a Date.now() value, ~1.7e12, since
+-- int4 tops out at ~2.1e9). Safe to re-run: a no-op once already bigint.
+alter table q_journal_blocks alter column sort_order type bigint;
 
 -- 인덱스
 create index if not exists q_journal_pages_user_date_idx on q_journal_pages (user_id, entry_date);

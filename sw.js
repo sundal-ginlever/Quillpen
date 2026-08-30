@@ -1,4 +1,4 @@
-const CACHE_NAME = 'quillpen-cache-v3';
+const CACHE_NAME = 'quillpen-cache-v4';
 const DYNAMIC_CACHE_NAME = 'quillpen-dynamic-v1';
 const URLS_TO_CACHE = [
   '/',
@@ -11,6 +11,7 @@ const URLS_TO_CACHE = [
   '/js/journal/journal-storage.js',
   '/js/journal/journal-render.js',
   '/js/journal/journal-config.js',
+  '/js/journal/journal-viewport.js',
   '/js/state.js',
   '/js/sync.js',
   '/js/interaction.js',

@@ -296,7 +296,7 @@ function handleTextChange(blockId, text) {
 // insert. Only the most recent delete is undoable; an older one that's
 // still "in flight" when a new delete happens has already fully committed,
 // so there's nothing left to do but drop its toast reference.
-let pendingDeleteUndo = null; // { dateStr, block, index }
+let pendingDeleteUndo = null; // { dateStr, block, index, deletePromise }
 
 function handleDeleteBlock(blockId) {
   if (isReadOnly) return;
@@ -309,18 +309,25 @@ function handleDeleteBlock(blockId) {
   saveLocalPage(dateStr, entry);
   renderBlocks(entry.blocks, blockHandlers);
 
-  if (isCloudAvailable() && removed._cloudExists) {
-    deleteCloudBlock(blockId).catch(e => console.error('journal delete sync failed', e));
-  }
+  // Keep the DELETE's promise around: on a slow connection it can still be
+  // in flight when undo fires, and undoDelete's re-insert must wait for it
+  // to land first — otherwise a DELETE that resolves after the INSERT wipes
+  // the just-restored row right back out, with nothing left locally to
+  // notice (pending is already false by then).
+  const deletePromise = (isCloudAvailable() && removed._cloudExists)
+    ? deleteCloudBlock(blockId).catch(e => console.error('journal delete sync failed', e))
+    : Promise.resolve();
 
-  pendingDeleteUndo = { dateStr, block: removed, index: idx };
+  pendingDeleteUndo = { dateStr, block: removed, index: idx, deletePromise };
   showJournalUndoToast('삭제했습니다', undoDelete);
 }
 
-function undoDelete() {
+async function undoDelete() {
   if (!pendingDeleteUndo) return;
-  const { dateStr, block, index } = pendingDeleteUndo;
+  const { dateStr, block, index, deletePromise } = pendingDeleteUndo;
   pendingDeleteUndo = null;
+
+  await deletePromise;
 
   // Re-arm as a fresh, unsynced block. The id is safe to reuse — the row
   // was actually deleted, not just hidden, so there's no PK left to collide
