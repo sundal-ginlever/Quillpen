@@ -136,7 +136,20 @@ export async function loadDate(dateStr) {
     const seen = new Set();
     cloudBlocks.forEach(cb => {
       const lb = localById.get(cb.id);
-      merged.push(lb && lb.pending && (lb.updatedAt || 0) > cb.updatedAt ? lb : cb);
+      // `pending` already means "the newest version of this block hasn't
+      // reached the cloud yet" — comparing device-clock updatedAt against the
+      // server's now() is comparing two different clocks and can pick the
+      // stale cloud row when the device clock lags. Trust the flag instead.
+      if (lb && lb.pending) {
+        // This row unquestionably exists in the cloud already (we're
+        // iterating cloudBlocks) — carry that fact onto the local copy we're
+        // keeping, or the next push mistakes it for a fresh insert and hits
+        // a duplicate-key error forever instead of updating it.
+        lb._cloudExists = true;
+        merged.push(lb);
+      } else {
+        merged.push(cb);
+      }
       seen.add(cb.id);
     });
     (local.blocks || []).forEach(lb => { if (!seen.has(lb.id) && lb.pending) merged.push(lb); });
@@ -170,20 +183,28 @@ async function pushPending(dateStr) {
 
   let pageId = entry.pageId;
   if (!pageId) {
-    const page = await ensureCloudPage(dateStr, entry.title);
+    const page = await ensureCloudPage(dateStr);
     if (!page) return;
     pageId = page.id;
     entry.pageId = pageId;
   }
 
   if (entry.titlePending) {
-    const ok = await updateCloudPageTitle(pageId, entry.title).then(() => true).catch(() => false);
-    if (ok !== false) entry.titlePending = false;
+    const ok = await updateCloudPageTitle(pageId, entry.title);
+    if (ok) entry.titlePending = false;
   }
 
   for (const b of pendingBlocks) {
+    // Capture the version we're about to send: if the block gets edited again
+    // while this await is in flight, updatedAt will have moved on by the time
+    // we come back, and we must NOT clear pending — that edit still needs to
+    // be pushed on the next call, or it's lost silently.
+    const sentAt = b.updatedAt;
     const ok = b._cloudExists ? await updateCloudBlock(b.id, b) : await insertCloudBlock(pageId, b);
-    if (ok) { b.pending = false; b._cloudExists = true; }
+    if (ok) {
+      b._cloudExists = true;
+      if (b.updatedAt === sentAt) b.pending = false;
+    }
   }
   saveLocalPage(dateStr, entry);
 }
@@ -216,13 +237,25 @@ async function addImageBlock(file) {
     showUndoToast('이미지 업로드에 실패했습니다. 다시 시도해주세요.');
     const idx = entry.blocks.indexOf(block);
     if (idx !== -1) entry.blocks.splice(idx, 1);
-  } finally {
-    block.uploading = false;
-    block.updatedAt = Date.now();
     saveLocalPage(dateStr, entry);
     if (journalState.selectedDate === dateStr) renderBlocks(entry.blocks, blockHandlers);
-    pushPending(dateStr);
+    // A concurrent pushPending (e.g. from the title debounce) may have
+    // already inserted this block's empty placeholder before the upload
+    // failed — clean up that orphan row instead of leaving a dead image.
+    if (isCloudAvailable() && block._cloudExists) {
+      deleteCloudBlock(block.id).catch(err => console.error('journal orphan block cleanup failed', err));
+    }
+    return;
   }
+  block.uploading = false;
+  // Re-arm pending unconditionally: a concurrent push while the upload was
+  // in flight could have already sent (and cleared pending on) the src:''
+  // placeholder. Without this the real image src would never get pushed.
+  block.pending = true;
+  block.updatedAt = Date.now();
+  saveLocalPage(dateStr, entry);
+  if (journalState.selectedDate === dateStr) renderBlocks(entry.blocks, blockHandlers);
+  pushPending(dateStr);
 }
 
 function handleTextChange(blockId, text) {

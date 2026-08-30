@@ -68,15 +68,21 @@ export async function fetchCloudPage(dateStr) {
     .select('*')
     .eq('page_id', page.id)
     .order('created_at', { ascending: true });
-  if (bErr) { console.error('fetchCloudBlocks error', bErr); return { page, blocks: [] }; }
+  // A failed block fetch must not be treated as "this page has no blocks" —
+  // the caller (loadDate) needs to tell "empty" apart from "unknown" so it
+  // doesn't merge a truncated cloud result over locally-synced blocks.
+  if (bErr) { console.error('fetchCloudBlocks error', bErr); return null; }
   return { page, blocks: blocks || [] };
 }
 
-export async function ensureCloudPage(dateStr, title) {
+export async function ensureCloudPage(dateStr) {
   if (!isCloudAvailable()) return null;
+  // Deliberately omit `title` from the upsert payload: on conflict this would
+  // run as an UPDATE and blow away a title already saved from another device.
+  // Title changes are only ever pushed through updateCloudPageTitle().
   const { data, error } = await sb
     .from('q_journal_pages')
-    .upsert({ user_id: currentUser.id, entry_date: dateStr, title: title || '' }, { onConflict: 'user_id,entry_date' })
+    .upsert({ user_id: currentUser.id, entry_date: dateStr }, { onConflict: 'user_id,entry_date' })
     .select()
     .single();
   if (error) { console.error('ensureCloudPage error', error); return null; }
@@ -84,9 +90,10 @@ export async function ensureCloudPage(dateStr, title) {
 }
 
 export async function updateCloudPageTitle(pageId, title) {
-  if (!isCloudAvailable() || !pageId) return;
+  if (!isCloudAvailable() || !pageId) return false;
   const { error } = await sb.from('q_journal_pages').update({ title: title || '' }).eq('id', pageId);
-  if (error) console.error('updateCloudPageTitle error', error);
+  if (error) { console.error('updateCloudPageTitle error', error); return false; }
+  return true;
 }
 
 // ── Cloud: blocks ──
