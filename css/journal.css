@@ -37,6 +37,13 @@
   backdrop-filter: blur(8px);
 }
 
+.journal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .journal-date-nav {
   display: flex;
   align-items: center;

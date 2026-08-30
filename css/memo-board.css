@@ -1,0 +1,179 @@
+/* ══════════════════════════════════════════
+   MEMO BOARD — read-only index over existing Memo widgets
+   Namespaced under #memo-board-screen / .mb-* so it never collides
+   with legacy canvas/widget styles or journal styles.
+   ══════════════════════════════════════════ */
+
+#memo-board-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 2200; /* above #journal-screen (2000), below modals (8000+) */
+  display: flex;
+  flex-direction: column;
+  background: var(--app-bg);
+  color: var(--app-text);
+}
+#memo-board-screen[hidden] { display: none; }
+
+.mb-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 56px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--header-bg);
+  backdrop-filter: blur(8px);
+}
+
+.mb-icon-btn {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-color);
+  background: var(--surface);
+  color: var(--app-text);
+  border-radius: 12px;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.mb-icon-btn:active { background: var(--surface-hover); }
+
+.mb-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--app-text);
+}
+
+.mb-search-row {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+#mb-search-input {
+  width: 100%;
+  min-height: 44px;
+  border: 1.5px solid var(--border-color);
+  border-radius: 12px;
+  padding: 0 14px;
+  font-size: 16px; /* >=16px avoids iOS auto-zoom on focus */
+  background: var(--surface);
+  color: var(--app-text);
+  outline: none;
+}
+#mb-search-input:focus { border-color: var(--accent); }
+
+.mb-local-banner {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  background: var(--accent-bg);
+  border-bottom: 1px solid var(--border-color);
+}
+.mb-local-banner[hidden] { display: none; }
+
+.mb-list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mb-empty {
+  flex-shrink: 0;
+  text-align: center;
+  color: var(--app-text-dim);
+  font-size: 13px;
+  padding: 40px 20px;
+}
+.mb-empty[hidden] { display: none; }
+.mb-retry-btn {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+.mb-retry-btn[hidden] { display: none; }
+
+.mb-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--mb-card-color, var(--accent));
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: var(--shadow);
+}
+
+.mb-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--app-text-dim);
+  margin-bottom: 6px;
+}
+.mb-card-page {
+  font-weight: 600;
+  color: var(--app-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.mb-card-time { flex-shrink: 0; }
+
+.mb-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--app-text);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mb-card-preview {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--app-text-muted);
+  white-space: pre-wrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mb-card-open-btn {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--surface-hover);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+.mb-card-open-btn:active { opacity: 0.8; }

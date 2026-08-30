@@ -3,7 +3,7 @@
 // No innerHTML is ever used with user-authored text; all user text
 // goes through textContent / .value so it can never be interpreted as HTML.
 // ══════════════════════════════════════════
-import { formatDateLabel, todayStr } from './journal-state.js';
+import { formatDateLabel, formatDateLabelShort, todayStr } from './journal-state.js';
 import { DELETE_UNDO_MS } from './journal-config.js';
 
 function autoGrow(textarea) {
@@ -14,7 +14,10 @@ function autoGrow(textarea) {
 
 export function updateHeader(dateStr) {
   const label = document.getElementById('journal-date-label');
-  if (label) label.textContent = formatDateLabel(dateStr);
+  if (label) {
+    label.textContent = formatDateLabelShort(dateStr);
+    label.title = formatDateLabel(dateStr) + ' — 탭하여 날짜 선택';
+  }
   const todayBtn = document.getElementById('journal-today-btn');
   if (todayBtn) todayBtn.hidden = dateStr === todayStr();
 }

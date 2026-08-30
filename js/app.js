@@ -24,6 +24,7 @@ import { openHelpModal, closeHelpModal } from './help.js';
 import { events } from './events.js';
 import { initJournal, showJournalScreen, loadDate, isJournalVisible } from './journal/journal.js';
 import { journalState } from './journal/journal-state.js';
+import { initMemoBoard, isMemoBoardVisible } from './memo-board.js';
 
 // ══════════════════════════════════════════
 // EVENT LISTENERS
@@ -149,12 +150,17 @@ window._appModules.startCanvas = startCanvas;
 // this module's evaluation — that would also skip the boot IIFE below and
 // take down login/canvas along with the journal.
 try { initJournal(); } catch (e) { console.error('journal init failed', e); }
+try { initMemoBoard(); } catch (e) { console.error('memo board init failed', e); }
 
 function startJournalIfNeeded() {
   try {
     if (isReadOnly) {
       const screen = document.getElementById('journal-screen');
       if (screen) screen.hidden = true;
+      // Memo board is only reachable from the journal header, but hide it
+      // defensively too — it must never be reachable on a shared read-only link.
+      const board = document.getElementById('memo-board-screen');
+      if (board) board.hidden = true;
       return;
     }
     showJournalScreen();
@@ -204,7 +210,7 @@ document.addEventListener('dragover', e => {
 });
 document.addEventListener('drop', e => {
   if (isReadOnly) return;
-  if (isJournalVisible()) return; // canvas is hidden behind the journal screen
+  if (isJournalVisible() || isMemoBoardVisible()) return; // canvas is hidden behind the journal/memo-board screen
   if (e.target.closest('[data-widget-id]')) return;
   const file = e.dataTransfer?.files[0];
   if (!file || !file.type.startsWith('image/')) return;
@@ -228,7 +234,7 @@ document.addEventListener('drop', e => {
 // Clipboard paste handler
 document.addEventListener('paste', e => {
   if (isReadOnly) return;
-  if (isJournalVisible()) return; // canvas is hidden behind the journal screen
+  if (isJournalVisible() || isMemoBoardVisible()) return; // canvas is hidden behind the journal/memo-board screen
   const t = e.target;
   if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return;
   const items = e.clipboardData?.items;
