@@ -8,6 +8,7 @@ import { journalLocalKey, JOURNAL_BUCKET } from './journal-config.js';
 import { currentUser } from '../state.js';
 import { sb } from '../supabase.js';
 import { nanoid, sanitizeSVG } from '../utils.js';
+import { showUndoToast } from '../undo.js';
 
 const localCache = { data: null, userId: undefined };
 
@@ -34,6 +35,7 @@ function writeAllLocal(data) {
     localStorage.setItem(journalLocalKey(userId), JSON.stringify(data));
   } catch (e) {
     console.error('journal local write failed', e);
+    showUndoToast('로컬 저장 실패! 기기 저장 공간이 부족합니다.');
   }
 }
 
@@ -42,11 +44,38 @@ export function getLocalPage(dateStr) {
   return all[dateStr] || null;
 }
 
+// Typing into a block re-saves on every keystroke; debouncing the actual
+// localStorage.setItem (which JSON.stringifies the whole date, base64
+// images included) keeps that cheap the same way js/sync.js's save()
+// debounces saveLocal(). The in-memory cache is updated immediately below
+// (readAllLocal()'s object is mutated in place), so getLocalPage() always
+// sees the latest data even before the debounced write actually lands.
+const SAVE_DEBOUNCE_MS = 300;
+let saveTimer = null;
+
 export function saveLocalPage(dateStr, pageEntry) {
   const all = readAllLocal();
   all[dateStr] = pageEntry;
-  writeAllLocal(all);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saveTimer = null; writeAllLocal(all); }, SAVE_DEBOUNCE_MS);
 }
+
+// Bypasses the debounce to persist immediately — call before the page can
+// disappear (tab hidden / navigated away) so a pending debounced write is
+// never lost.
+export function flushLocalPageNow() {
+  if (saveTimer === null) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  writeAllLocal(readAllLocal());
+}
+
+// Mobile Safari does not reliably fire `beforeunload`; `visibilitychange`
+// and `pagehide` are the events that actually land there.
+window.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushLocalPageNow();
+});
+window.addEventListener('pagehide', flushLocalPageNow);
 
 function isCloudAvailable() {
   return !!(sb && currentUser);
